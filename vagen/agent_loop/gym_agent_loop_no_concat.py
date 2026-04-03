@@ -43,13 +43,24 @@ class AgentData:
         cur_images: Optional[List[Image.Image]] = None,
         group_idx: int = 0,
         traj_idx: int = 0,
+        history_window_size: int = 0,
+        thumbnail_scale: float = 1.0,
     ):
         self.sys_msg: Optional[Dict[str, Any]] = sys_msg
         self.sys_images: Optional[List[Image.Image]] = sys_images
-        
+
         self.cur_msg: Optional[Dict[str, Any]] = cur_msg
         self.cur_images: Optional[List[Image.Image]] = cur_images
-        
+
+        # History window config
+        # history_window_size: 0=no memory, k>0=keep last k turns, -1=keep all
+        self.history_window_size: int = history_window_size
+        self.thumbnail_scale: float = thumbnail_scale
+        # Each entry: {"obs_msg": Dict, "obs_images": List[Image], "response_text": str}
+        self.history_turns: List[Dict[str, Any]] = []
+        # Built by _handle_pending_state, used by _handle_generating_state
+        self.context_images: List[Image.Image] = []
+
         self.metrics = metrics
         self.request_id = request_id
         self.env = env
@@ -65,7 +76,6 @@ class AgentData:
 
         # Env stats
         self.env_turns: int = 0
-
 
         # Cached assistant text to step env
         self.last_assistant_text: Optional[str] = None
@@ -92,7 +102,9 @@ class GymAgentLoop(AgentLoopBase):
         cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
-        
+        cls.history_window_size = config.trainer.get("history_window_size", 0)
+        cls.thumbnail_scale = config.trainer.get("thumbnail_scale", 1.0)
+
 
     @rollout_trace_op
     async def run(self, sampling_params: Dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -142,6 +154,8 @@ class GymAgentLoop(AgentLoopBase):
             env_name=kwargs["env_name"],
             group_idx=kwargs["group_idx"],
             traj_idx=kwargs["traj_idx"],
+            history_window_size=self.history_window_size,
+            thumbnail_scale=self.thumbnail_scale,
         )
 
         # State machine: always GENERATE -> INTERACT, and decide termination inside INTERACT
@@ -161,25 +175,72 @@ class GymAgentLoop(AgentLoopBase):
         await env.close()
         return agent_data.outputs
 
+    def _build_windowed_context(self, agent_data: AgentData):
+        """
+        Build messages and images for the current turn based on history_window_size.
+
+        history_window_size=0: [sys, cur_obs]              (no memory)
+        history_window_size=k: [sys, obs_{n-k}, a_{n-k}, ..., obs_{n-1}, a_{n-1}, cur_obs]
+        history_window_size=-1: [sys, all history, cur_obs] (full history in no-concat mode)
+
+        Historical images are resized by thumbnail_scale if < 1.0.
+        Returns (messages, image_data).
+        """
+        messages = [agent_data.sys_msg]
+        image_data = list(agent_data.sys_images)
+
+        # Determine which historical turns to include
+        history = agent_data.history_turns
+        if agent_data.history_window_size == 0:
+            window = []
+        elif agent_data.history_window_size == -1:
+            window = history
+        else:
+            window = history[-agent_data.history_window_size:]
+
+        scale = agent_data.thumbnail_scale
+        for turn in window:
+            # Add historical obs (user message)
+            messages.append(turn["obs_msg"])
+            # Add historical images (optionally thumbnailed)
+            for img in turn["obs_images"]:
+                if scale < 1.0:
+                    new_w = max(1, int(img.width * scale))
+                    new_h = max(1, int(img.height * scale))
+                    image_data.append(img.resize((new_w, new_h), Image.BILINEAR))
+                else:
+                    image_data.append(img)
+            # Add historical assistant response
+            messages.append({"role": "assistant", "content": turn["response_text"]})
+
+        # Add current obs (full resolution)
+        messages.append(agent_data.cur_msg)
+        image_data.extend(agent_data.cur_images)
+
+        return messages, image_data
+
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: Dict[str, Any]) -> AgentState:
-        """Encode initial (system + first user) messages into prompt_ids."""
-        image_data = agent_data.sys_images + agent_data.cur_images
+        """Encode windowed context (system + history window + current obs) into prompt_ids."""
+        messages, image_data = self._build_windowed_context(agent_data)
+        # Cache for use in _handle_generating_state
+        agent_data.context_images = image_data
+
         if self.processor is not None:
             raw_prompt = await self.loop.run_in_executor(
                 None,
                 lambda: self.processor.apply_chat_template(
-                    [agent_data.sys_msg, agent_data.cur_msg],
+                    messages,
                     add_generation_prompt=True,
                     tokenize=False,
                     **self.apply_chat_template_kwargs,
                 ),
             )
-            model_inputs = self.processor(text=[raw_prompt], images=image_data, return_tensors="pt")
+            model_inputs = self.processor(text=[raw_prompt], images=image_data or None, return_tensors="pt")
             agent_data.turn_prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
             if image_data:
                 raise ValueError("Environment returned images but `processor` is None.")
-            flat_messages = [_flatten_text_only_content(m) for m in [agent_data.sys_msg, agent_data.cur_msg]]
+            flat_messages = [_flatten_text_only_content(m) for m in messages]
             agent_data.turn_prompt_ids = await self.loop.run_in_executor(
                 None,
                 lambda: self.tokenizer.apply_chat_template(
@@ -190,9 +251,9 @@ class GymAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
-        
-        if len(agent_data.turn_prompt_ids)>self.prompt_length:
-            logger.warning(f"In env:{agent_data.env_name}, initial prompt length {len(agent_data.turn_prompt_ids)} exceeds prompt_length {self.prompt_length}")
+
+        if len(agent_data.turn_prompt_ids) > self.prompt_length:
+            logger.warning(f"In env:{agent_data.env_name}, prompt length {len(agent_data.turn_prompt_ids)} exceeds prompt_length {self.prompt_length}")
         return AgentState.GENERATING
 
     
@@ -204,7 +265,8 @@ class GymAgentLoop(AgentLoopBase):
         max_new_tokens=sampling_params_for_turn.get("max_new_tokens", None) or agent_data.response_limit
         max_new_tokens = min(max_new_tokens, agent_data.response_limit)
         sampling_params_for_turn["max_new_tokens"] = max_new_tokens
-        image_data = agent_data.sys_images + agent_data.cur_images
+        # Use the windowed image list built by _handle_pending_state
+        image_data = agent_data.context_images
 
         with simple_timer("generate_sequences", agent_data.metrics):
             output = await self.server_manager.generate(
@@ -264,7 +326,8 @@ class GymAgentLoop(AgentLoopBase):
         if len(agent_data.turn_response_mask) >= self.response_length:
             last_turn = True
 
-        turn_images=agent_data.sys_images+agent_data.cur_images
+        # context_images was built by _handle_pending_state (includes windowed history + current)
+        turn_images = agent_data.context_images
         
         resp_len = len(agent_data.turn_response_mask)
         response_ids = agent_data.turn_prompt_ids[-resp_len:] if resp_len else []
@@ -293,7 +356,15 @@ class GymAgentLoop(AgentLoopBase):
         )
         agent_data.outputs.append(output)
         
-        # update cur msg and images
+        # Save completed turn to history before updating cur_msg
+        # (cur_msg/cur_images = the obs the model just saw; last_assistant_text = its response)
+        agent_data.history_turns.append({
+            "obs_msg": agent_data.cur_msg,
+            "obs_images": list(agent_data.cur_images),
+            "response_text": agent_data.last_assistant_text or "",
+        })
+
+        # update cur msg and images with the new observation
         cur_msg={"role": "user", "content": convert_obs_to_content(obs, **kwargs)}
         cur_images=_normalize_images(obs.get("multi_modal_input", {}).get("<image>", []) or [])
         agent_data.cur_msg = cur_msg
