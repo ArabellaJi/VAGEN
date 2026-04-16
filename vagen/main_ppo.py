@@ -33,6 +33,7 @@ from verl.utils.import_utils import load_extern_type
 from vagen.utils.sglang_weight_sync import (
     apply_sglang_disk_weight_sync_monkey_patch,
     ensure_sglang_disk_weight_sync_env,
+    is_sglang_disk_weight_sync_enabled,
 )
 
 
@@ -130,7 +131,7 @@ class TaskRunner:
         """Add actor rollout worker based on the actor strategy."""
         from verl.single_controller.ray import RayWorkerGroup
 
-        apply_sglang_disk_weight_sync_monkey_patch()
+        apply_sglang_disk_weight_sync_monkey_patch(force=is_sglang_disk_weight_sync_enabled(config))
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker

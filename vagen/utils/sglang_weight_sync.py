@@ -104,8 +104,6 @@ def ensure_sglang_disk_weight_sync_env(config: Any) -> dict[str, str]:
         ENV_DIR: sync_root,
         ENV_LOAD_FORMAT: load_format,
     }
-    for key, value in env.items():
-        os.environ[key] = value
     return env
 
 
@@ -167,8 +165,8 @@ def prune_old_sync_steps(sync_root: str, keep: int = DEFAULT_KEEP_STEPS) -> None
         shutil.rmtree(old_dir, ignore_errors=True)
 
 
-def apply_sglang_disk_weight_sync_monkey_patch() -> bool:
-    if get_sglang_weight_sync_method() != "disk":
+def apply_sglang_disk_weight_sync_monkey_patch(force: bool = False) -> bool:
+    if not force and get_sglang_weight_sync_method() != "disk":
         return False
 
     try:

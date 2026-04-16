@@ -48,7 +48,7 @@ fi
 export CUDA_PATH="${CUDA_HOME}"
 export PATH="${CUDA_HOME}/bin:${PATH}"
 export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH:-}"
-export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
+export PYTHONPATH="${PROJECT_ROOT}"
 
 unset PYTHONNOUSERSITE
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
@@ -59,11 +59,12 @@ export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export RAY_DEDUP_LOGS=0
 
-# Enable the new VAGEN-side SGLang disk weight sync path.
-export VAGEN_SGLANG_WEIGHT_SYNC_METHOD=disk
-export VAGEN_SGLANG_WEIGHT_SYNC_DIR="${SYNC_ROOT}"
-export VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT=auto
-export VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE=true
+# Keep the disk-sync settings as shell variables so they are passed only to Ray workers,
+# not to the driver's Ray dashboard subprocesses.
+VAGEN_SGLANG_WEIGHT_SYNC_METHOD=disk
+VAGEN_SGLANG_WEIGHT_SYNC_DIR="${SYNC_ROOT}"
+VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT=auto
+VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE=true
 
 echo "CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-unset}"
 echo "CONDA_PREFIX=${CONDA_PREFIX:-unset}"
@@ -146,6 +147,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   trainer.concat_multi_turn=True \
   trainer.n_gpus_per_node=1 \
   trainer.nnodes=1 \
+  +ray_kwargs.ray_init.include_dashboard=False \
   "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_HOME='${CUDA_HOME}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_PATH='${CUDA_PATH}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.PATH='${PATH}'" \
