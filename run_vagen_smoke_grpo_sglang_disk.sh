@@ -27,6 +27,7 @@ cd "${PROJECT_ROOT}"
 
 module purge
 module load python-miniconda3/4.10.3
+module load gcc/11.2.0
 module load cuda/12.6.2-gcc-12.4.0
 
 source ~/.bashrc
