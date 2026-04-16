@@ -122,9 +122,32 @@ export TMPDIR="${JOB_TMP}/t"
 export RAY_TMPDIR="${JOB_TMP}/r"
 mkdir -p "${TMPDIR}" "${RAY_TMPDIR}"
 
+RAY_LOG_ARCHIVE_DIR="${PROJECT_ROOT}/logs/ray/${SLURM_JOB_ID}"
+
+archive_ray_logs() {
+  local ray_logs_dir=""
+  if [ -d "${RAY_TMPDIR}/session_latest/logs" ]; then
+    ray_logs_dir="${RAY_TMPDIR}/session_latest/logs"
+  else
+    ray_logs_dir="$(find "${RAY_TMPDIR}" -maxdepth 4 -type d -path '*/session_latest/logs' 2>/dev/null | head -n 1 || true)"
+  fi
+
+  if [ -n "${ray_logs_dir}" ] && [ -d "${ray_logs_dir}" ]; then
+    mkdir -p "${RAY_LOG_ARCHIVE_DIR}"
+    cp -a "${ray_logs_dir}/." "${RAY_LOG_ARCHIVE_DIR}/"
+    echo "Archived Ray logs to ${RAY_LOG_ARCHIVE_DIR}"
+  else
+    echo "No Ray logs found under ${RAY_TMPDIR}"
+  fi
+}
+
+trap archive_ray_logs EXIT
+
 PY=$(which python)
 echo "Python: ${PY}"
 echo "SLURM_JOB_ID: ${SLURM_JOB_ID}"
+echo "RAY_TMPDIR: ${RAY_TMPDIR}"
+echo "RAY_LOG_ARCHIVE_DIR: ${RAY_LOG_ARCHIVE_DIR}"
 
 PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   --config-path="${PWD}/vagen/configs" \
