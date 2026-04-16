@@ -1,3 +1,4 @@
+import inspect
 import logging
 import os
 import shutil
@@ -253,11 +254,13 @@ def apply_sglang_disk_weight_sync_monkey_patch(force: bool = False) -> bool:
         load_format = os.getenv(ENV_LOAD_FORMAT, DEFAULT_LOAD_FORMAT)
         flush_cache = _get_env_bool(ENV_FLUSH_CACHE, True)
         logger.info("Reloading SGLang weights from disk: %s", model_path)
-        await self._engine.update_weights_from_disk(
+        update_result = self._engine.update_weights_from_disk(
             model_path=model_path,
             load_format=load_format,
             flush_cache=flush_cache,
         )
+        if inspect.isawaitable(update_result):
+            await update_result
         if global_steps is not None:
             await self.server_actor.set_global_steps.remote(global_steps)
 
