@@ -49,6 +49,9 @@ export CUDA_PATH="${CUDA_HOME}"
 export PATH="${CUDA_HOME}/bin:${PATH}"
 export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="${PROJECT_ROOT}"
+export CC="${CC:-gcc}"
+export CXX="${CXX:-g++}"
+export CUDAHOSTCXX="${CUDAHOSTCXX:-${CXX}}"
 
 unset PYTHONNOUSERSITE
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
@@ -74,10 +77,17 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF}"
 echo "TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}"
 echo "PYTHONPATH=${PYTHONPATH}"
+echo "CC=${CC}"
+echo "CXX=${CXX}"
+echo "CUDAHOSTCXX=${CUDAHOSTCXX}"
 echo "VAGEN_SGLANG_WEIGHT_SYNC_METHOD=${VAGEN_SGLANG_WEIGHT_SYNC_METHOD}"
 echo "VAGEN_SGLANG_WEIGHT_SYNC_DIR=${VAGEN_SGLANG_WEIGHT_SYNC_DIR}"
 echo "VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT=${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT}"
 which python
+command -v gcc || true
+command -v g++ || true
+gcc --version || true
+g++ --version || true
 command -v nvcc
 nvcc --version
 nvidia-smi || true
@@ -160,6 +170,9 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF='${PYTORCH_CUDA_ALLOC_CONF}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.TORCH_CUDA_ARCH_LIST='${TORCH_CUDA_ARCH_LIST}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.PYTHONPATH='${PYTHONPATH}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.CC='${CC}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.CXX='${CXX}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.CUDAHOSTCXX='${CUDAHOSTCXX}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_METHOD='${VAGEN_SGLANG_WEIGHT_SYNC_METHOD}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_DIR='${VAGEN_SGLANG_WEIGHT_SYNC_DIR}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT='${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT}'" \
