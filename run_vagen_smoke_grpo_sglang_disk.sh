@@ -142,6 +142,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.rollout.free_cache_engine=True \
   actor_rollout_ref.rollout.enable_chunked_prefill=True \
   actor_rollout_ref.rollout.multi_turn.enable=True \
+  actor_rollout_ref.rollout.agent.num_workers=1 \
   actor_rollout_ref.rollout.agent.agent_loop_config_path="${PWD}/vagen/configs/agent.yaml" \
   actor_rollout_ref.rollout.disable_log_stats=False \
   trainer.concat_multi_turn=True \
