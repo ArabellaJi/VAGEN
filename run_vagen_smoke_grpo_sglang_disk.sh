@@ -49,9 +49,16 @@ export CUDA_PATH="${CUDA_HOME}"
 export PATH="${CUDA_HOME}/bin:${PATH}"
 export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="${PROJECT_ROOT}"
-export CC="${CC:-gcc}"
-export CXX="${CXX:-g++}"
-export CUDAHOSTCXX="${CUDAHOSTCXX:-${CXX}}"
+
+# Quest may pre-populate CC/CXX with an older clang toolchain. Force GCC so
+# FlashInfer JIT does not inherit a C++17-incomplete host compiler.
+unset CC CXX CUDAHOSTCXX CMAKE_CUDA_HOST_COMPILER CUDA_NVCC_EXECUTABLE
+GCC_BIN="$(command -v gcc)"
+GXX_BIN="$(command -v g++)"
+export CC="${GCC_BIN}"
+export CXX="${GXX_BIN}"
+export CUDAHOSTCXX="${GXX_BIN}"
+export CMAKE_CUDA_HOST_COMPILER="${GXX_BIN}"
 
 unset PYTHONNOUSERSITE
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
@@ -80,6 +87,7 @@ echo "PYTHONPATH=${PYTHONPATH}"
 echo "CC=${CC}"
 echo "CXX=${CXX}"
 echo "CUDAHOSTCXX=${CUDAHOSTCXX}"
+echo "CMAKE_CUDA_HOST_COMPILER=${CMAKE_CUDA_HOST_COMPILER}"
 echo "VAGEN_SGLANG_WEIGHT_SYNC_METHOD=${VAGEN_SGLANG_WEIGHT_SYNC_METHOD}"
 echo "VAGEN_SGLANG_WEIGHT_SYNC_DIR=${VAGEN_SGLANG_WEIGHT_SYNC_DIR}"
 echo "VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT=${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT}"
@@ -173,6 +181,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   "+ray_kwargs.ray_init.runtime_env.env_vars.CC='${CC}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.CXX='${CXX}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.CUDAHOSTCXX='${CUDAHOSTCXX}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.CMAKE_CUDA_HOST_COMPILER='${CMAKE_CUDA_HOST_COMPILER}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_METHOD='${VAGEN_SGLANG_WEIGHT_SYNC_METHOD}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_DIR='${VAGEN_SGLANG_WEIGHT_SYNC_DIR}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT='${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT}'" \
