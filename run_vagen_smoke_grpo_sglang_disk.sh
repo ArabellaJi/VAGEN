@@ -129,6 +129,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   data.train_files="${PWD}/examples/train/sokoban/train_sokoban_vision.yaml" \
   data.val_files="${PWD}/examples/train/sokoban/val_sokoban_vision.yaml" \
   data.train_batch_size=2 \
+  data.dataloader_num_workers=0 \
   data.max_prompt_length=1000 \
   data.max_response_length=1200 \
   algorithm.adv_estimator=grpo \
