@@ -63,14 +63,6 @@ from vagen.utils.upload_hugging_face import HFUploadManager
 from vagen.utils.image_validation_logger import ValidationGenerationsLogger
 from vagen.utils.concat_val_multi_turn import concat_val_multi_turn
 from vagen.utils.image_token_utils import replace_image_tokens_for_logging
-from vagen.utils.sglang_weight_sync import (
-    get_sglang_actor_sync_dir,
-    get_sglang_hf_model_dir,
-    get_sglang_weight_sync_root,
-    is_sglang_disk_weight_sync_enabled,
-    prune_old_sync_steps,
-    update_latest_sync_step,
-)
 import vagen.custom_advantage
 from vagen.custom_metric.metric import METRIC_REGISTRY
 from vagen.custom_filter.filter import FILTER_REGISTRY
@@ -416,8 +408,6 @@ class RayPPOTrainer:
         self._log_image_cfg = self.config.trainer.get("log_image", {})
         self._log_image_enable = self._log_image_cfg.get("enable", False)
         self._max_pending_dumps = self._log_image_cfg.get("max_pending", 2)
-        self._sglang_disk_sync_version = 0
-        self._sglang_disk_sync_exported_version = None
 
         # HuggingFace Hub upload
         self._hf_upload_manager = HFUploadManager(config)
@@ -833,7 +823,10 @@ class RayPPOTrainer:
                 original_uids = set(test_gen_batch.non_tensor_batch["uid"])
 
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
-            test_output_gen_batch_padded = self._generate_sequences(test_gen_batch_padded)
+            if not self.async_rollout_mode:
+                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+            else:
+                test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
 
             # unpad
             if self.concat_multi_turn:
@@ -1075,44 +1068,6 @@ class RayPPOTrainer:
             self.async_rollout_manager = AgentLoopManager(
                     config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
                 )
-
-    def _maybe_prepare_sglang_disk_weight_sync(self):
-        if not is_sglang_disk_weight_sync_enabled(self.config):
-            return
-        if self._sglang_disk_sync_exported_version == self._sglang_disk_sync_version:
-            return
-
-        save_contents = list(self.config.actor_rollout_ref.actor.checkpoint.get("save_contents", None) or [])
-        if "hf_model" not in save_contents:
-            raise ValueError(
-                "SGLang disk weight sync requires "
-                "actor_rollout_ref.actor.checkpoint.save_contents to include 'hf_model'."
-            )
-
-        sync_root = get_sglang_weight_sync_root(
-            config=self.config,
-            default_local_dir=self.config.trainer.default_local_dir,
-        )
-        actor_local_path = get_sglang_actor_sync_dir(sync_root, self.global_steps)
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, None, self.global_steps, max_ckpt_to_keep=2)
-
-        hf_model_dir = get_sglang_hf_model_dir(sync_root, self.global_steps)
-        if not os.path.isdir(hf_model_dir):
-            raise FileNotFoundError(
-                "Expected an exported Hugging Face checkpoint for SGLang disk sync at "
-                f"{hf_model_dir}, but it was not created."
-            )
-
-        update_latest_sync_step(sync_root, self.global_steps)
-        prune_old_sync_steps(sync_root, keep=2)
-        self._sglang_disk_sync_exported_version = self._sglang_disk_sync_version
-
-    def _generate_sequences(self, batch: DataProto) -> DataProto:
-        if not self.async_rollout_mode:
-            return self.actor_rollout_wg.generate_sequences(batch)
-
-        self._maybe_prepare_sglang_disk_weight_sync()
-        return self.async_rollout_manager.generate_sequences(batch)
 
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
@@ -1381,7 +1336,10 @@ class RayPPOTrainer:
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
-                        gen_batch_output = self._generate_sequences(gen_batch_output)
+                        if not self.async_rollout_mode:
+                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
+                        else:
+                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
 
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
@@ -1395,7 +1353,10 @@ class RayPPOTrainer:
                         with marked_timer("gen_max", timing_raw, color="purple"):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
-                            gen_baseline_output = self._generate_sequences(gen_baseline_batch)
+                            if not self.async_rollout_mode:
+                                gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+                            else:
+                                gen_baseline_output = self.async_rollout_manager.generate_sequences(gen_baseline_batch)
                             batch = batch.union(gen_baseline_output)
                             # compute reward model score on batch
                             rm_scores = None
@@ -1586,7 +1547,6 @@ class RayPPOTrainer:
                         with marked_timer("update_actor", timing_raw, color="red"):
                             batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
                             actor_output = self.actor_rollout_wg.update_actor(batch)
-                            self._sglang_disk_sync_version += 1
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
 
