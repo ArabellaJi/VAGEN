@@ -123,6 +123,7 @@ export RAY_TMPDIR="${JOB_TMP}/r"
 mkdir -p "${TMPDIR}" "${RAY_TMPDIR}"
 
 RAY_LOG_ARCHIVE_DIR="${PROJECT_ROOT}/logs/ray/${SLURM_JOB_ID}"
+RAY_NUM_CPUS=4
 
 archive_ray_logs() {
   local ray_logs_dir=""
@@ -148,6 +149,7 @@ echo "Python: ${PY}"
 echo "SLURM_JOB_ID: ${SLURM_JOB_ID}"
 echo "RAY_TMPDIR: ${RAY_TMPDIR}"
 echo "RAY_LOG_ARCHIVE_DIR: ${RAY_LOG_ARCHIVE_DIR}"
+echo "RAY_NUM_CPUS: ${RAY_NUM_CPUS}"
 
 PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   --config-path="${PWD}/vagen/configs" \
@@ -201,6 +203,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   trainer.n_gpus_per_node=1 \
   trainer.nnodes=1 \
   +ray_kwargs.ray_init.include_dashboard=False \
+  +ray_kwargs.ray_init.num_cpus=${RAY_NUM_CPUS} \
   +ray_kwargs.ray_init.object_store_memory=4294967296 \
   "+ray_kwargs.ray_init._temp_dir='${RAY_TMPDIR}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_HOME='${CUDA_HOME}'" \
