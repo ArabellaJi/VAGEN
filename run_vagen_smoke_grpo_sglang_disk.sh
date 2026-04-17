@@ -75,6 +75,18 @@ export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export RAY_DEDUP_LOGS=0
 
+# Disable torch.compile / TorchInductor entirely.
+# enforce_eager=True only disables CUDA graphs; SGLang still triggers torch.compile
+# (torch._inductor) during model init, which can deadlock for hours on Quest.
+export TORCH_COMPILE_DISABLE=1
+export TORCHINDUCTOR_DISABLE=1
+
+# Disable FlashInfer JIT compilation entirely.
+# SGLang tries to JIT-compile FlashInfer ops at startup even when attention_backend=cuda;
+# on Quest this can hang for hours.
+export FLASHINFER_JIT_WORKER_TIMEOUT=60
+export SGLANG_DISABLE_FLASHINFER=1
+
 # Disk-sync env vars are defined later (after JOB_TMP / SYNC_ROOT are set).
 
 echo "CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-unset}"
@@ -242,6 +254,10 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_DIR='${VAGEN_SGLANG_WEIGHT_SYNC_DIR}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT='${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE='${VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.TORCH_COMPILE_DISABLE='${TORCH_COMPILE_DISABLE}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.TORCHINDUCTOR_DISABLE='${TORCHINDUCTOR_DISABLE}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_JIT_WORKER_TIMEOUT='${FLASHINFER_JIT_WORKER_TIMEOUT}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.SGLANG_DISABLE_FLASHINFER='${SGLANG_DISABLE_FLASHINFER}'" \
   trainer.critic_warmup=0 \
   critic.enable=False \
   'trainer.logger=[console]' \
