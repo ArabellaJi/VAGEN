@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:h100:1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
 #SBATCH --time=08:00:00
 #SBATCH --output=/home/eiu4164/projects/VAGEN/logs/%x_%j.out
@@ -123,7 +123,7 @@ export RAY_TMPDIR="${JOB_TMP}/r"
 mkdir -p "${TMPDIR}" "${RAY_TMPDIR}"
 
 RAY_LOG_ARCHIVE_DIR="${PROJECT_ROOT}/logs/ray/${SLURM_JOB_ID}"
-RAY_NUM_CPUS=4
+RAY_NUM_CPUS=2
 
 archive_ray_logs() {
   local ray_logs_dir=""
@@ -159,7 +159,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   data.train_batch_size=1 \
   data.dataloader_num_workers=0 \
   data.max_prompt_length=768 \
-  data.max_response_length=256 \
+  data.max_response_length=320 \
   algorithm.adv_estimator=grpo \
   algorithm.norm_adv_by_std_in_grpo=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
@@ -185,7 +185,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.rollout.n=1 \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
   actor_rollout_ref.rollout.prompt_length=768 \
-  actor_rollout_ref.rollout.response_length=256 \
+  actor_rollout_ref.rollout.response_length=320 \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
   actor_rollout_ref.rollout.max_num_batched_tokens=1024 \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.20 \
