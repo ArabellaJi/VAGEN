@@ -47,6 +47,8 @@ trainer:
   max_actor_ckpt_to_keep: 1                # Max number of actor checkpoints to keep (saves disk space)
   max_critic_ckpt_to_keep: 1               # Max number of critic checkpoints to keep
   concat_multi_turn: True                 # Concatenate multi-turn messages for rollout and training
+  history_window_size: 0                  # History turns shown during rollout: 0=no memory (no-concat default), k=sliding window of k turns, -1=full history (use concat mode instead)
+  thumbnail_scale: 1.0                    # Scale factor for historical images in non-full-memory modes: 1.0=original, 0.25=quarter resolution
   log_image:
     enable: false           # Whether to log environment-rendered images to logger (e.g. wandb)
     max_pending: 2          # Max pending async image dump tasks (prevents IO from blocking training)

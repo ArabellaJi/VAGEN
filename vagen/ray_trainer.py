@@ -1142,6 +1142,44 @@ class RayPPOTrainer:
         )
         return output
 
+    def _maybe_prepare_sglang_disk_weight_sync(self):
+        if not is_sglang_disk_weight_sync_enabled(self.config):
+            return
+        if self._sglang_disk_sync_exported_version == self._sglang_disk_sync_version:
+            return
+
+        save_contents = list(self.config.actor_rollout_ref.actor.checkpoint.get("save_contents", None) or [])
+        if "hf_model" not in save_contents:
+            raise ValueError(
+                "SGLang disk weight sync requires "
+                "actor_rollout_ref.actor.checkpoint.save_contents to include 'hf_model'."
+            )
+
+        sync_root = get_sglang_weight_sync_root(
+            config=self.config,
+            default_local_dir=self.config.trainer.default_local_dir,
+        )
+        actor_local_path = get_sglang_actor_sync_dir(sync_root, self.global_steps)
+        self.actor_rollout_wg.save_checkpoint(actor_local_path, None, self.global_steps, max_ckpt_to_keep=2)
+
+        hf_model_dir = get_sglang_hf_model_dir(sync_root, self.global_steps)
+        if not os.path.isdir(hf_model_dir):
+            raise FileNotFoundError(
+                "Expected an exported Hugging Face checkpoint for SGLang disk sync at "
+                f"{hf_model_dir}, but it was not created."
+            )
+
+        update_latest_sync_step(sync_root, self.global_steps)
+        prune_old_sync_steps(sync_root, keep=2)
+        self._sglang_disk_sync_exported_version = self._sglang_disk_sync_version
+
+    def _generate_sequences(self, batch: DataProto) -> DataProto:
+        if not self.async_rollout_mode:
+            return self.actor_rollout_wg.generate_sequences(batch)
+
+        self._maybe_prepare_sglang_disk_weight_sync()
+        return self.async_rollout_manager.generate_sequences(batch)
+
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
 
