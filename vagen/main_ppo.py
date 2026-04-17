@@ -30,6 +30,11 @@ from verl.trainer.ppo.utils import need_critic, need_reference_policy
 from verl.utils.config import validate_config
 from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
+from vagen.utils.sglang_weight_sync import (
+    apply_sglang_disk_weight_sync_monkey_patch,
+    ensure_sglang_disk_weight_sync_env,
+    is_sglang_disk_weight_sync_enabled,
+)
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -61,12 +66,17 @@ def run_ppo(config, task_runner_class=None) -> None:
         default_runtime_env = get_ppo_ray_runtime_env()
         ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
         runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
+        disk_sync_env = ensure_sglang_disk_weight_sync_env(config)
 
         if config.transfer_queue.enable:
             # Add runtime environment variables for transfer queue
             runtime_env_vars = runtime_env_kwargs.get("env_vars", {})
             runtime_env_vars["TRANSFER_QUEUE_ENABLE"] = "1"
             runtime_env_kwargs["env_vars"] = runtime_env_vars
+
+        if disk_sync_env:
+            runtime_env_vars = runtime_env_kwargs.get("env_vars", {})
+            runtime_env_kwargs["env_vars"] = {**disk_sync_env, **runtime_env_vars}
 
         runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
         ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
@@ -120,6 +130,8 @@ class TaskRunner:
     def add_actor_rollout_worker(self, config):
         """Add actor rollout worker based on the actor strategy."""
         from verl.single_controller.ray import RayWorkerGroup
+
+        apply_sglang_disk_weight_sync_monkey_patch(force=is_sglang_disk_weight_sync_enabled(config))
 
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
@@ -335,10 +347,14 @@ class TaskRunner:
             train_sampler=train_sampler,
         )
         # Initialize the workers of the trainer.
+        print("TaskRunner: trainer.init_workers() start")
         trainer.init_workers()
+        print("TaskRunner: trainer.init_workers() done")
 
         # Start the training process.
+        print("TaskRunner: trainer.fit() start")
         trainer.fit()
+        print("TaskRunner: trainer.fit() done")
 
 
 def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=True, max_samples: int = -1):
