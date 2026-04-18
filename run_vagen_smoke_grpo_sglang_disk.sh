@@ -236,7 +236,6 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.rollout.free_cache_engine=True \
   actor_rollout_ref.rollout.enable_chunked_prefill=False \
   +actor_rollout_ref.rollout.engine_kwargs.sglang.attention_backend=cuda \
-  +actor_rollout_ref.rollout.engine_kwargs.sglang.mm_attention_backend=cuda \
   +actor_rollout_ref.rollout.engine_kwargs.sglang.sampling_backend=pytorch \
   actor_rollout_ref.rollout.multi_turn.enable=True \
   actor_rollout_ref.rollout.agent.num_workers=1 \
