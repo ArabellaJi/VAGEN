@@ -1100,6 +1100,15 @@ class RayPPOTrainer:
                 AgentLoopManager._run_all._vagen_timeout_patched = True
                 print(f"[VAGEN] Patched AgentLoopManager._run_all with {_SGLANG_INIT_TIMEOUT}s timeout")
 
+            # Log available Ray resources so we can diagnose scheduling failures.
+            try:
+                import ray as _ray
+                _avail = _ray.available_resources()
+                _total = _ray.cluster_resources()
+                print(f"[VAGEN] Ray resources before AgentLoopManager: available={dict(_avail)} total={dict(_total)}")
+            except Exception as _e:
+                print(f"[VAGEN] Could not query Ray resources: {_e}")
+
             print("[VAGEN] Starting AgentLoopManager init (SGLang server startup) ...")
             import time as _time
             _t0 = _time.time()
