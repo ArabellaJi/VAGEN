@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=vagen_grpo_sokoban_3b
+#SBATCH --job-name=vagen_grpo_sokoban_3b_w1
 #SBATCH --account=p33224
 #SBATCH --partition=gengpu
 #SBATCH --nodes=1
@@ -17,7 +17,8 @@ set -eo pipefail
 
 PROJECT_ROOT=/home/eiu4164/projects/VAGEN
 RUN_ROOT=/projects/p33224/vagen_runs
-EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b
+# window1: no-concat mode, model sees only 1 previous turn as history context
+EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_window1
 
 mkdir -p "${PROJECT_ROOT}/logs"
 mkdir -p "${RUN_ROOT}"
@@ -49,8 +50,6 @@ export PATH="${CUDA_HOME}/bin:${PATH}"
 export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="${PROJECT_ROOT}"
 
-# Quest may pre-populate CC/CXX with an older clang toolchain. Force GCC so
-# FlashInfer JIT does not inherit a C++17-incomplete host compiler.
 unset CC CXX CUDAHOSTCXX CMAKE_CUDA_HOST_COMPILER CUDA_NVCC_EXECUTABLE
 GCC_BIN="$(command -v gcc)"
 GXX_BIN="$(command -v g++)"
@@ -71,16 +70,9 @@ export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export RAY_DEDUP_LOGS=0
 
-# Disable torch.compile entirely — enforce_eager=True only disables CUDA graphs;
-# TORCHDYNAMO_DISABLE=1 is the real switch that stops Dynamo from compiling anything.
 export TORCHDYNAMO_DISABLE=1
-
-# FLASHINFER_ENABLE_JIT=0: skip FlashInfer JIT entirely (recognized by FlashInfer >= 0.1.6).
-# FLASHINFER_JIT_WORKER_TIMEOUT: fallback timeout if an older FlashInfer tries to JIT anyway.
 export FLASHINFER_JIT_WORKER_TIMEOUT=60
 export FLASHINFER_ENABLE_JIT=0
-
-# SGLang server init timeout: raise an informative error instead of hanging indefinitely.
 export VAGEN_SGLANG_INIT_TIMEOUT=600
 
 echo "CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-unset}"
@@ -120,7 +112,6 @@ PY
 export JOB_TMP="/tmp/j${SLURM_JOB_ID}"
 export TMPDIR="${JOB_TMP}/t"
 export RAY_TMPDIR="${JOB_TMP}/r"
-# Use local SSD for weight sync to avoid NFS read/write latency (~6 GB checkpoint).
 SYNC_ROOT="${JOB_TMP}/sglang_sync"
 mkdir -p "${TMPDIR}" "${RAY_TMPDIR}" "${SYNC_ROOT}"
 
@@ -183,8 +174,8 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   data.val_files="${PWD}/examples/train/sokoban/val_sokoban_vision.yaml" \
   data.train_batch_size=4 \
   data.dataloader_num_workers=0 \
-  data.max_prompt_length=1024 \
-  data.max_response_length=4096 \
+  data.max_prompt_length=2048 \
+  data.max_response_length=512 \
   algorithm.adv_estimator=grpo \
   algorithm.norm_adv_by_std_in_grpo=True \
   algorithm.kl_ctrl.kl_coef=0.0 \
@@ -209,10 +200,10 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.rollout.mode=async \
   actor_rollout_ref.rollout.n=4 \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-  actor_rollout_ref.rollout.prompt_length=4096 \
+  actor_rollout_ref.rollout.prompt_length=2048 \
   actor_rollout_ref.rollout.response_length=512 \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
-  actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
+  actor_rollout_ref.rollout.max_num_batched_tokens=4096 \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
   actor_rollout_ref.rollout.enforce_eager=True \
   actor_rollout_ref.rollout.free_cache_engine=True \
@@ -220,9 +211,11 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   +actor_rollout_ref.rollout.engine_kwargs.sglang.sampling_backend=pytorch \
   actor_rollout_ref.rollout.multi_turn.enable=True \
   actor_rollout_ref.rollout.agent.num_workers=4 \
-  actor_rollout_ref.rollout.agent.agent_loop_config_path="${PWD}/vagen/configs/agent.yaml" \
+  actor_rollout_ref.rollout.agent.agent_loop_config_path="${PWD}/vagen/configs/agent_no_concat.yaml" \
   actor_rollout_ref.rollout.disable_log_stats=False \
-  trainer.concat_multi_turn=True \
+  trainer.concat_multi_turn=False \
+  trainer.history_window_size=1 \
+  trainer.thumbnail_scale=0.25 \
   trainer.n_gpus_per_node=1 \
   trainer.nnodes=1 \
   +ray_kwargs.ray_init.include_dashboard=False \
