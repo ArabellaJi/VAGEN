@@ -709,6 +709,12 @@ class AgentLoopManager:
             else self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes
         )
         num_replicas = world_size // rollout_world_size
+        print(
+            f"[VAGEN] _initialize_llm_servers: rollout_world_size={rollout_world_size} "
+            f"world_size={world_size} num_replicas={num_replicas} "
+            f"mode={'hybrid' if self.worker_group else 'standalone'}",
+            flush=True,
+        )
 
         rollout_config = self.config.actor_rollout_ref.rollout
         model_config = self.config.actor_rollout_ref.model
@@ -721,6 +727,11 @@ class AgentLoopManager:
             )
             for replica_rank in range(num_replicas)
         ]
+        print(
+            f"[VAGEN] _initialize_llm_servers: replicas created ({num_replicas}), "
+            "calling init_hybrid/standalone ...",
+            flush=True,
+        )
         if self.worker_group:
             self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
         else:
@@ -728,6 +739,7 @@ class AgentLoopManager:
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
+        print(f"[VAGEN] _initialize_llm_servers: DONE. server_addresses={self.server_addresses}", flush=True)
         print(f"AgentLoopManager: {self.server_addresses}")
 
         # Update Prometheus configuration with server addresses
@@ -819,7 +831,16 @@ class AgentLoopManager:
         self._run_all([replica.sleep() for replica in self.rollout_replicas])
 
     def _run_all(self, tasks: list[asyncio.Task]):
+        _timeout = int(os.getenv("VAGEN_SGLANG_INIT_TIMEOUT", "600"))
+
         async def run_all():
-            await asyncio.gather(*tasks)
+            try:
+                await asyncio.wait_for(asyncio.gather(*tasks), timeout=_timeout)
+            except asyncio.TimeoutError:
+                raise RuntimeError(
+                    f"[VAGEN] AgentLoopManager._run_all timed out after {_timeout}s. "
+                    "The SGLang server subprocess is not responding. "
+                    "Check Ray worker logs for SGLang startup errors."
+                )
 
         asyncio.run(run_all())

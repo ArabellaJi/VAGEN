@@ -84,8 +84,15 @@ export TORCHDYNAMO_DISABLE=1
 # Disable FlashInfer JIT compilation entirely.
 # SGLang tries to JIT-compile FlashInfer ops at startup even when attention_backend=cuda;
 # on Quest this can hang for hours.
+# FLASHINFER_JIT_WORKER_TIMEOUT: makes the FlashInfer JIT subprocess exit after N seconds
+# instead of hanging indefinitely.
+# FLASHINFER_ENABLE_JIT=0: skip FlashInfer JIT entirely (recognized by FlashInfer >= 0.1.6).
 export FLASHINFER_JIT_WORKER_TIMEOUT=60
-export SGLANG_DISABLE_FLASHINFER=1
+export FLASHINFER_ENABLE_JIT=0
+
+# SGLang server init timeout: if the SGLang server doesn't become healthy within this many
+# seconds, raise an informative error instead of hanging.
+export VAGEN_SGLANG_INIT_TIMEOUT=600
 
 # Disk-sync env vars are defined later (after JOB_TMP / SYNC_ROOT are set).
 
@@ -182,6 +189,10 @@ echo "SYNC_ROOT: ${SYNC_ROOT}"
 echo "VAGEN_SGLANG_WEIGHT_SYNC_METHOD: ${VAGEN_SGLANG_WEIGHT_SYNC_METHOD}"
 echo "VAGEN_SGLANG_WEIGHT_SYNC_DIR: ${VAGEN_SGLANG_WEIGHT_SYNC_DIR}"
 echo "VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT: ${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT}"
+echo "TORCHDYNAMO_DISABLE: ${TORCHDYNAMO_DISABLE}"
+echo "FLASHINFER_JIT_WORKER_TIMEOUT: ${FLASHINFER_JIT_WORKER_TIMEOUT}"
+echo "FLASHINFER_ENABLE_JIT: ${FLASHINFER_ENABLE_JIT}"
+echo "VAGEN_SGLANG_INIT_TIMEOUT: ${VAGEN_SGLANG_INIT_TIMEOUT}"
 
 PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   --config-path="${PWD}/vagen/configs" \
@@ -256,7 +267,8 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE='${VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.TORCHDYNAMO_DISABLE='${TORCHDYNAMO_DISABLE}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_JIT_WORKER_TIMEOUT='${FLASHINFER_JIT_WORKER_TIMEOUT}'" \
-  "+ray_kwargs.ray_init.runtime_env.env_vars.SGLANG_DISABLE_FLASHINFER='${SGLANG_DISABLE_FLASHINFER}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_ENABLE_JIT='${FLASHINFER_ENABLE_JIT}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_INIT_TIMEOUT='${VAGEN_SGLANG_INIT_TIMEOUT}'" \
   trainer.critic_warmup=0 \
   critic.enable=False \
   'trainer.logger=[console]' \

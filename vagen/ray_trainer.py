@@ -1072,9 +1072,41 @@ class RayPPOTrainer:
             else:
                 from .agent_loop.agent_loop_no_concat import AgentLoopManager
                 self.concat_multi_turn = False
+
+            # Patch _run_all to add a timeout so a hung SGLang server init produces
+            # an informative error instead of hanging the whole job forever.
+            _SGLANG_INIT_TIMEOUT = int(os.environ.get("VAGEN_SGLANG_INIT_TIMEOUT", "600"))
+
+            _original_run_all = AgentLoopManager._run_all
+
+            def _timed_run_all(self_mgr, tasks):
+                import asyncio as _asyncio
+                async def _run():
+                    await _asyncio.wait_for(
+                        _asyncio.gather(*tasks),
+                        timeout=_SGLANG_INIT_TIMEOUT,
+                    )
+                try:
+                    _asyncio.run(_run())
+                except _asyncio.TimeoutError:
+                    raise RuntimeError(
+                        f"[VAGEN] SGLang server _run_all timed out after {_SGLANG_INIT_TIMEOUT}s. "
+                        "The SGLang server subprocess likely failed to start or is stuck in "
+                        "compilation/model-loading. Check Ray worker logs for SGLang stdout/stderr."
+                    )
+
+            if not getattr(AgentLoopManager._run_all, "_vagen_timeout_patched", False):
+                AgentLoopManager._run_all = _timed_run_all
+                AgentLoopManager._run_all._vagen_timeout_patched = True
+                print(f"[VAGEN] Patched AgentLoopManager._run_all with {_SGLANG_INIT_TIMEOUT}s timeout")
+
+            print("[VAGEN] Starting AgentLoopManager init (SGLang server startup) ...")
+            import time as _time
+            _t0 = _time.time()
             self.async_rollout_manager = AgentLoopManager(
                     config=self.config, worker_group=self.actor_rollout_wg, rm_wg=self.rm_wg
                 )
+            print(f"[VAGEN] AgentLoopManager init DONE in {_time.time()-_t0:.1f}s")
             print("RayPPOTrainer: async_rollout_manager initialized")
 
     def _maybe_prepare_sglang_disk_weight_sync(self):
@@ -1141,44 +1173,6 @@ class RayPPOTrainer:
             f"(total _generate_sequences={time.time()-t0:.1f}s)"
         )
         return output
-
-    def _maybe_prepare_sglang_disk_weight_sync(self):
-        if not is_sglang_disk_weight_sync_enabled(self.config):
-            return
-        if self._sglang_disk_sync_exported_version == self._sglang_disk_sync_version:
-            return
-
-        save_contents = list(self.config.actor_rollout_ref.actor.checkpoint.get("save_contents", None) or [])
-        if "hf_model" not in save_contents:
-            raise ValueError(
-                "SGLang disk weight sync requires "
-                "actor_rollout_ref.actor.checkpoint.save_contents to include 'hf_model'."
-            )
-
-        sync_root = get_sglang_weight_sync_root(
-            config=self.config,
-            default_local_dir=self.config.trainer.default_local_dir,
-        )
-        actor_local_path = get_sglang_actor_sync_dir(sync_root, self.global_steps)
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, None, self.global_steps, max_ckpt_to_keep=2)
-
-        hf_model_dir = get_sglang_hf_model_dir(sync_root, self.global_steps)
-        if not os.path.isdir(hf_model_dir):
-            raise FileNotFoundError(
-                "Expected an exported Hugging Face checkpoint for SGLang disk sync at "
-                f"{hf_model_dir}, but it was not created."
-            )
-
-        update_latest_sync_step(sync_root, self.global_steps)
-        prune_old_sync_steps(sync_root, keep=2)
-        self._sglang_disk_sync_exported_version = self._sglang_disk_sync_version
-
-    def _generate_sequences(self, batch: DataProto) -> DataProto:
-        if not self.async_rollout_mode:
-            return self.actor_rollout_wg.generate_sequences(batch)
-
-        self._maybe_prepare_sglang_disk_weight_sync()
-        return self.async_rollout_manager.generate_sequences(batch)
 
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
