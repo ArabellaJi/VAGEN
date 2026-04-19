@@ -1,4 +1,7 @@
 #!/bin/bash
+# Usage: sbatch run_vagen_train_grpo_sglang_disk.sh [concat|window1]
+#   concat  (default): full concat mode, long sequences (prompt=4096 response=2560)
+#   window1: no-concat with 1-turn history window, short sequences (prompt=2048 response=512)
 #SBATCH --job-name=vagen_grpo_sokoban_3b
 #SBATCH --account=p33224
 #SBATCH --partition=gengpu
@@ -15,9 +18,39 @@
 
 set -eo pipefail
 
+MODE="${1:-concat}"
+
 PROJECT_ROOT=/home/eiu4164/projects/VAGEN
 RUN_ROOT=/projects/p33224/vagen_runs
-EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b
+
+case "${MODE}" in
+  concat)
+    EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=4096
+    ROLLOUT_PROMPT=4096
+    ROLLOUT_RESPONSE=2560
+    MAX_BATCHED_TOKENS=8192
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    HISTORY_ARGS=()
+    ;;
+  window1)
+    EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_window1
+    DATA_MAX_PROMPT=2048
+    DATA_MAX_RESPONSE=512
+    ROLLOUT_PROMPT=2048
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=4096
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_ARGS=(trainer.history_window_size=1 trainer.thumbnail_scale=0.25)
+    ;;
+  *)
+    echo "Unknown MODE: ${MODE}. Use 'concat' or 'window1'." >&2
+    exit 1
+    ;;
+esac
 
 mkdir -p "${PROJECT_ROOT}/logs"
 mkdir -p "${RUN_ROOT}"
@@ -83,6 +116,8 @@ export FLASHINFER_ENABLE_JIT=0
 # SGLang server init timeout: raise an informative error instead of hanging indefinitely.
 export VAGEN_SGLANG_INIT_TIMEOUT=600
 
+echo "MODE: ${MODE}"
+echo "EXPERIMENT_NAME: ${EXPERIMENT_NAME}"
 echo "CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-unset}"
 echo "CONDA_PREFIX=${CONDA_PREFIX:-unset}"
 echo "CUDA_HOME=${CUDA_HOME}"
@@ -183,8 +218,8 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   data.val_files="${PWD}/examples/train/sokoban/val_sokoban_vision.yaml" \
   data.train_batch_size=4 \
   data.dataloader_num_workers=0 \
-  data.max_prompt_length=1024 \
-  data.max_response_length=4096 \
+  data.max_prompt_length=${DATA_MAX_PROMPT} \
+  data.max_response_length=${DATA_MAX_RESPONSE} \
   algorithm.adv_estimator=grpo \
   algorithm.norm_adv_by_std_in_grpo=True \
   algorithm.kl_ctrl.kl_coef=0.0 \
@@ -209,10 +244,10 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.rollout.mode=async \
   actor_rollout_ref.rollout.n=4 \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-  actor_rollout_ref.rollout.prompt_length=4096 \
-  actor_rollout_ref.rollout.response_length=2560 \
+  actor_rollout_ref.rollout.prompt_length=${ROLLOUT_PROMPT} \
+  actor_rollout_ref.rollout.response_length=${ROLLOUT_RESPONSE} \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
-  actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
+  actor_rollout_ref.rollout.max_num_batched_tokens=${MAX_BATCHED_TOKENS} \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
   actor_rollout_ref.rollout.enforce_eager=True \
   actor_rollout_ref.rollout.free_cache_engine=True \
@@ -220,9 +255,10 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   +actor_rollout_ref.rollout.engine_kwargs.sglang.sampling_backend=pytorch \
   actor_rollout_ref.rollout.multi_turn.enable=True \
   actor_rollout_ref.rollout.agent.num_workers=4 \
-  actor_rollout_ref.rollout.agent.agent_loop_config_path="${PWD}/vagen/configs/agent.yaml" \
+  actor_rollout_ref.rollout.agent.agent_loop_config_path="${PWD}/vagen/configs/${AGENT_CONFIG}" \
   actor_rollout_ref.rollout.disable_log_stats=False \
-  trainer.concat_multi_turn=True \
+  trainer.concat_multi_turn=${CONCAT_MULTI_TURN} \
+  "${HISTORY_ARGS[@]}" \
   trainer.n_gpus_per_node=1 \
   trainer.nnodes=1 \
   +ray_kwargs.ray_init.include_dashboard=False \
