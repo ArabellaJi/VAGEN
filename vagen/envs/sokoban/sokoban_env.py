@@ -40,7 +40,7 @@ class SokobanEnvConfig:
     reset_seed_max_tries: int = 10000  # Max tries to find a valid seed
     min_solution_bfs_max_depth: int = 200  # Max BFS depth for solution
     prompt_format: str = "wm"  # "free_think" or "wm"
-    format_reward: float = 0.1  # Reward for following the format correctly
+    format_reward: float = 0.0  # Reward for following the format correctly
     success_reward: float = 1.0
     
 class Sokoban(GymImageEnv):

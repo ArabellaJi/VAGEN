@@ -8,4 +8,5 @@ envs:
     config: # env-specific config
       render_mode: vision
       min_solution_steps: [1,5]
+      format_reward: 0.0
       
