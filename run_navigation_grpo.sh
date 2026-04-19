@@ -5,7 +5,7 @@
 #
 # ── One-time pre-requisites (run once before first job) ──────────────────────
 #   pip install ai2thor
-#   sudo apt-get install -y libvulkan1 vulkan-tools
+#   Vulkan: on Quest libvulkan.so.1 is already present — no install needed.
 #   conda activate vagen_noflash
 #   python -m vagen.envs.navigation.pre_download_scenes   # ~10 min, downloads all scenes
 #
@@ -221,6 +221,7 @@ export HYDRA_FULL_ERROR=1
 export RAY_DEDUP_LOGS=0
 export TORCHDYNAMO_DISABLE=1          # stop Dynamo from compiling
 export FLASHINFER_ENABLE_JIT=0        # skip FlashInfer JIT
+export VK_ICD_FILENAMES="${HOME}/.vulkan/icd.d/nvidia_icd.json"  # required for AI2-THOR CloudRendering on Quest
 export FLASHINFER_JIT_WORKER_TIMEOUT=60
 export VAGEN_SGLANG_INIT_TIMEOUT=600
 export WANDB_DIR="${RUN_ROOT}/wandb"
