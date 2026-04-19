@@ -833,7 +833,22 @@ class RayPPOTrainer:
                 original_uids = set(test_gen_batch.non_tensor_batch["uid"])
 
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
-            test_output_gen_batch_padded = self._generate_sequences(test_gen_batch_padded)
+            # Suppress disk-sync re-export during validation to prevent the double-export race
+            # (both rollout and in-loop validation writing to the same global_step_N path).
+            # Validation reuses the rollout-exported checkpoint; validation metrics see
+            # pre-update weights for this step, which is acceptable for logging purposes.
+            _suppress_disk_sync = (
+                is_sglang_disk_weight_sync_enabled(self.config)
+                and self._sglang_disk_sync_exported_version is not None
+            )
+            if _suppress_disk_sync:
+                _saved_disk_sync_version = self._sglang_disk_sync_version
+                self._sglang_disk_sync_version = self._sglang_disk_sync_exported_version
+            try:
+                test_output_gen_batch_padded = self._generate_sequences(test_gen_batch_padded)
+            finally:
+                if _suppress_disk_sync:
+                    self._sglang_disk_sync_version = _saved_disk_sync_version
 
             # unpad
             if self.concat_multi_turn:
