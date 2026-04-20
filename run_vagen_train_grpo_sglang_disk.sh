@@ -31,6 +31,14 @@ case "${MODE}" in
     ROLLOUT_PROMPT=4096
     ROLLOUT_RESPONSE=2560
     MAX_BATCHED_TOKENS=8192
+    # Full-concat uses much longer sequences on a single H100, so keep the
+    # effective GRPO batch small and avoid an extra colocated RefPolicy worker.
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
     AGENT_CONFIG=agent.yaml
     CONCAT_MULTI_TURN=True
     HISTORY_ARGS=()
@@ -42,6 +50,12 @@ case "${MODE}" in
     ROLLOUT_PROMPT=2048
     ROLLOUT_RESPONSE=512
     MAX_BATCHED_TOKENS=4096
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
     AGENT_CONFIG=agent_no_concat.yaml
     CONCAT_MULTI_TURN=False
     HISTORY_ARGS=(trainer.history_window_size=1 trainer.thumbnail_scale=0.25)
@@ -118,6 +132,12 @@ export VAGEN_SGLANG_INIT_TIMEOUT=600
 
 echo "MODE: ${MODE}"
 echo "EXPERIMENT_NAME: ${EXPERIMENT_NAME}"
+echo "TRAIN_BATCH_SIZE: ${TRAIN_BATCH_SIZE}"
+echo "PPO_MINI_BATCH_SIZE: ${PPO_MINI_BATCH_SIZE}"
+echo "ROLLOUT_N: ${ROLLOUT_N}"
+echo "VAL_BATCH_SIZE: ${VAL_BATCH_SIZE}"
+echo "ACTOR_USE_KL_LOSS: ${ACTOR_USE_KL_LOSS}"
+echo "ACTOR_KL_LOSS_COEF: ${ACTOR_KL_LOSS_COEF}"
 echo "CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-unset}"
 echo "CONDA_PREFIX=${CONDA_PREFIX:-unset}"
 echo "CUDA_HOME=${CUDA_HOME}"
@@ -216,7 +236,8 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   --config-name="vagen_multiturn" \
   data.train_files="${PWD}/examples/train/sokoban/train_sokoban_vision.yaml" \
   data.val_files="${PWD}/examples/train/sokoban/val_sokoban_vision.yaml" \
-  data.train_batch_size=8 \
+  data.train_batch_size=${TRAIN_BATCH_SIZE} \
+  data.val_batch_size=${VAL_BATCH_SIZE} \
   data.dataloader_num_workers=0 \
   data.max_prompt_length=${DATA_MAX_PROMPT} \
   data.max_response_length=${DATA_MAX_RESPONSE} \
@@ -229,11 +250,11 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.model.use_fused_kernels=False \
   actor_rollout_ref.model.enable_gradient_checkpointing=True \
   actor_rollout_ref.actor.optim.lr=1e-6 \
-  actor_rollout_ref.actor.use_kl_loss=True \
-  actor_rollout_ref.actor.kl_loss_coef=0.001 \
+  actor_rollout_ref.actor.use_kl_loss=${ACTOR_USE_KL_LOSS} \
+  actor_rollout_ref.actor.kl_loss_coef=${ACTOR_KL_LOSS_COEF} \
   actor_rollout_ref.actor.kl_loss_type=low_var_kl \
   actor_rollout_ref.actor.entropy_coeff=0.0 \
-  actor_rollout_ref.actor.ppo_mini_batch_size=8 \
+  actor_rollout_ref.actor.ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE} \
   actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
   actor_rollout_ref.actor.checkpoint.save_contents=['hf_model'] \
   actor_rollout_ref.actor.fsdp_config.param_offload=True \
@@ -242,7 +263,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.ref.fsdp_config.param_offload=True \
   actor_rollout_ref.rollout.name=sglang \
   actor_rollout_ref.rollout.mode=async \
-  actor_rollout_ref.rollout.n=8 \
+  actor_rollout_ref.rollout.n=${ROLLOUT_N} \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
   actor_rollout_ref.rollout.prompt_length=${ROLLOUT_PROMPT} \
   actor_rollout_ref.rollout.response_length=${ROLLOUT_RESPONSE} \
