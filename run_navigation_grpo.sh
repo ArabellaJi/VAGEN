@@ -27,6 +27,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:h100:2
+#SBATCH --nodelist=qgpu3016
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --time=24:00:00
@@ -222,6 +223,7 @@ export RAY_DEDUP_LOGS=0
 export TORCHDYNAMO_DISABLE=1          # stop Dynamo from compiling
 export FLASHINFER_ENABLE_JIT=0        # skip FlashInfer JIT
 export VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/nvidia_icd.x86_64.json"  # system NVIDIA ICD on Quest compute nodes
+echo "[$(date '+%H:%M:%S')] VK_ICD_FILENAMES=${VK_ICD_FILENAMES}"
 export FLASHINFER_JIT_WORKER_TIMEOUT=60
 export VAGEN_SGLANG_INIT_TIMEOUT=600
 export WANDB_DIR="${RUN_ROOT}/wandb"
