@@ -29,7 +29,7 @@
 #SBATCH --gres=gpu:h100:2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --time=48:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=/home/eiu4164/projects/VAGEN/logs/%x_%j.out
 #SBATCH --error=/home/eiu4164/projects/VAGEN/logs/%x_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -61,7 +61,7 @@ case "${CONDITION}" in
     EXPERIMENT_NAME=nav_grpo_quick
     TRAIN_DATA=${SCRIPTDIR}/train_navigation_quick.yaml       # n_envs=30, max_turns=5
     VAL_DATA=${SCRIPTDIR}/val_navigation_quick.yaml           # n_envs=10
-    NAV_MAX_ENVS=16
+    NAV_MAX_ENVS=64
     TRAINING_STEPS=5
     TRAIN_BATCH_SIZE=8
     ROLLOUT_N=1
