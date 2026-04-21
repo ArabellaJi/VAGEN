@@ -28,7 +28,20 @@ PROJECT_ROOT=/home/eiu4164/projects/VAGEN
 RUN_ROOT=/projects/p33224/vagen_runs
 MODEL_REPO_ID="Qwen/Qwen2.5-VL-3B-Instruct"
 REF_MODEL_PATH="${REF_MODEL_PATH:-${HF_MODEL_LOCAL_PATH:-${MODEL_REPO_ID}}}"
+HF_HOME_DEFAULT=/projects/p33224/hf_cache
 MAX_AGENT_NUM_WORKERS=4
+
+# Resolve the shared HF snapshot early so all downstream settings, including
+# PPO critic args, see the same local model path.
+if [ "${REF_MODEL_PATH}" = "${MODEL_REPO_ID}" ]; then
+  EARLY_HF_SNAPSHOT_ROOT="${HF_HOME_DEFAULT}/hub/models--Qwen--Qwen2.5-VL-3B-Instruct/snapshots"
+  if [ -d "${EARLY_HF_SNAPSHOT_ROOT}" ]; then
+    EARLY_LOCAL_MODEL_SNAPSHOT="$(find "${EARLY_HF_SNAPSHOT_ROOT}" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+    if [ -n "${EARLY_LOCAL_MODEL_SNAPSHOT}" ]; then
+      REF_MODEL_PATH="${EARLY_LOCAL_MODEL_SNAPSHOT}"
+    fi
+  fi
+fi
 
 case "${MODE}" in
   concat)

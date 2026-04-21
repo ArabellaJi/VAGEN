@@ -12,9 +12,55 @@ def _install_vagen_sglang_patch() -> None:
     try:
         from vagen.utils.sglang_weight_sync import apply_sglang_disk_weight_sync_monkey_patch
 
-        applied = apply_sglang_disk_weight_sync_monkey_patch()
-        if applied:
-            print("[sitecustomize] Installed VAGEN SGLang disk weight sync patch", file=sys.stderr)
+        targets = {
+            "verl.workers.rollout.sglang_rollout.http_server_engine",
+            "verl.workers.rollout.sglang_rollout.sglang_rollout",
+        }
+
+        def try_patch() -> bool:
+            applied = apply_sglang_disk_weight_sync_monkey_patch(force=True)
+            if applied:
+                print("[sitecustomize] Installed VAGEN SGLang disk weight sync patch", file=sys.stderr)
+            return applied
+
+        if targets.issubset(sys.modules):
+            try_patch()
+            return
+
+        class _SGLangPatchLoader(importlib.abc.Loader):
+            def __init__(self, wrapped_loader):
+                self._wrapped_loader = wrapped_loader
+
+            def create_module(self, spec):
+                if hasattr(self._wrapped_loader, "create_module"):
+                    return self._wrapped_loader.create_module(spec)
+                return None
+
+            def exec_module(self, module):
+                self._wrapped_loader.exec_module(module)
+                if targets.issubset(sys.modules):
+                    try_patch()
+
+        class _SGLangPatchFinder(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target_module=None):
+                if fullname not in targets:
+                    return None
+
+                original_meta_path = sys.meta_path
+                try:
+                    sys.meta_path = [finder for finder in original_meta_path if finder is not self]
+                    spec = importlib.util.find_spec(fullname)
+                finally:
+                    sys.meta_path = original_meta_path
+
+                if spec is None or spec.loader is None:
+                    return spec
+
+                spec.loader = _SGLangPatchLoader(spec.loader)
+                return spec
+
+        sys.meta_path.insert(0, _SGLangPatchFinder())
+        print("[sitecustomize] Installed lazy VAGEN SGLang disk weight sync hook", file=sys.stderr)
     except Exception as exc:
         print(f"[sitecustomize] Failed to install VAGEN SGLang disk sync patch: {exc}", file=sys.stderr)
 
