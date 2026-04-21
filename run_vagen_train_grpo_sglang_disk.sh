@@ -26,7 +26,8 @@ MODE="${1:-concat}"
 
 PROJECT_ROOT=/home/eiu4164/projects/VAGEN
 RUN_ROOT=/projects/p33224/vagen_runs
-REF_MODEL_PATH="Qwen/Qwen2.5-VL-3B-Instruct"
+MODEL_REPO_ID="Qwen/Qwen2.5-VL-3B-Instruct"
+REF_MODEL_PATH="${REF_MODEL_PATH:-${HF_MODEL_LOCAL_PATH:-${MODEL_REPO_ID}}}"
 MAX_AGENT_NUM_WORKERS=4
 
 case "${MODE}" in
@@ -265,6 +266,7 @@ unset PYTHONNOUSERSITE
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export TORCH_CUDA_ARCH_LIST="9.0"
 export HF_HOME=/projects/p33224/hf_cache
+export HF_HUB_CACHE="${HF_HOME}/hub"
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
@@ -272,6 +274,26 @@ export NUMEXPR_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export RAY_DEDUP_LOGS=0
+
+HF_TOKEN_VALUE="${HF_TOKEN:-${HUGGINGFACE_HUB_TOKEN:-}}"
+HF_TOKEN_PRESENT=false
+if [ -n "${HF_TOKEN_VALUE}" ]; then
+  export HF_TOKEN="${HF_TOKEN_VALUE}"
+  export HUGGINGFACE_HUB_TOKEN="${HF_TOKEN_VALUE}"
+  HF_TOKEN_PRESENT=true
+fi
+
+# Prefer a local Hugging Face snapshot when it is already cached so SGLang does
+# not need anonymous Hub metadata checks during server startup.
+if [ "${REF_MODEL_PATH}" = "${MODEL_REPO_ID}" ]; then
+  HF_SNAPSHOT_ROOT="${HF_HOME}/hub/models--Qwen--Qwen2.5-VL-3B-Instruct/snapshots"
+  if [ -d "${HF_SNAPSHOT_ROOT}" ]; then
+    LOCAL_MODEL_SNAPSHOT="$(find "${HF_SNAPSHOT_ROOT}" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+    if [ -n "${LOCAL_MODEL_SNAPSHOT}" ]; then
+      REF_MODEL_PATH="${LOCAL_MODEL_SNAPSHOT}"
+    fi
+  fi
+fi
 
 # Disable torch.compile entirely — enforce_eager=True only disables CUDA graphs;
 # TORCHDYNAMO_DISABLE=1 is the real switch that stops Dynamo from compiling anything.
@@ -288,6 +310,8 @@ export VAGEN_SGLANG_INIT_TIMEOUT=600
 
 echo "MODE: ${MODE}"
 echo "EXPERIMENT_NAME: ${EXPERIMENT_NAME}"
+echo "MODEL_REPO_ID: ${MODEL_REPO_ID}"
+echo "REF_MODEL_PATH: ${REF_MODEL_PATH}"
 echo "TRAIN_FILE: ${TRAIN_FILE}"
 echo "VAL_FILE: ${VAL_FILE}"
 echo "TRAIN_BATCH_SIZE: ${TRAIN_BATCH_SIZE}"
@@ -305,6 +329,9 @@ echo "CONDA_PREFIX=${CONDA_PREFIX:-unset}"
 echo "CUDA_HOME=${CUDA_HOME}"
 echo "CUDA_PATH=${CUDA_PATH}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "HF_HOME=${HF_HOME}"
+echo "HF_HUB_CACHE=${HF_HUB_CACHE}"
+echo "HF_TOKEN_PRESENT=${HF_TOKEN_PRESENT}"
 echo "PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF}"
 echo "TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}"
 echo "PYTHONPATH=${PYTHONPATH}"
@@ -454,6 +481,8 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   "+ray_kwargs.ray_init.runtime_env.env_vars.PATH='${PATH}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.LD_LIBRARY_PATH='${LD_LIBRARY_PATH}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_VISIBLE_DEVICES='${CUDA_VISIBLE_DEVICES}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HOME='${HF_HOME}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HUB_CACHE='${HF_HUB_CACHE}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF='${PYTORCH_CUDA_ALLOC_CONF}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.TORCH_CUDA_ARCH_LIST='${TORCH_CUDA_ARCH_LIST}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.PYTHONPATH='${PYTHONPATH}'" \
