@@ -126,7 +126,8 @@ case "${MODE}" in
     CRITIC_ARGS=(
       critic.enable=True
       critic.optim.lr=1e-5
-      critic.model.use_remove_padding=True
+      ++critic.model.override_config.attn_implementation=eager
+      critic.model.use_remove_padding=False
       critic.model.path="${REF_MODEL_PATH}"
       critic.model.enable_gradient_checkpointing=True
       critic.ppo_micro_batch_size_per_gpu=1
@@ -158,7 +159,8 @@ case "${MODE}" in
     CRITIC_ARGS=(
       critic.enable=True
       critic.optim.lr=1e-5
-      critic.model.use_remove_padding=True
+      ++critic.model.override_config.attn_implementation=eager
+      critic.model.use_remove_padding=False
       critic.model.path="${REF_MODEL_PATH}"
       critic.model.enable_gradient_checkpointing=True
       critic.ppo_micro_batch_size_per_gpu=1
@@ -190,7 +192,8 @@ case "${MODE}" in
     CRITIC_ARGS=(
       critic.enable=True
       critic.optim.lr=1e-5
-      critic.model.use_remove_padding=True
+      ++critic.model.override_config.attn_implementation=eager
+      critic.model.use_remove_padding=False
       critic.model.path="${REF_MODEL_PATH}"
       critic.model.enable_gradient_checkpointing=True
       critic.ppo_micro_batch_size_per_gpu=1
