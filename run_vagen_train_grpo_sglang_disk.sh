@@ -268,6 +268,7 @@ export TORCHDYNAMO_DISABLE=1
 # FLASHINFER_JIT_WORKER_TIMEOUT: fallback timeout if an older FlashInfer tries to JIT anyway.
 export FLASHINFER_JIT_WORKER_TIMEOUT=60
 export FLASHINFER_ENABLE_JIT=0
+export VAGEN_FORCE_EAGER_ATTN=1
 
 # SGLang server init timeout: raise an informative error instead of hanging indefinitely.
 export VAGEN_SGLANG_INIT_TIMEOUT=600
@@ -375,6 +376,7 @@ echo "VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT: ${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORM
 echo "TORCHDYNAMO_DISABLE: ${TORCHDYNAMO_DISABLE}"
 echo "FLASHINFER_JIT_WORKER_TIMEOUT: ${FLASHINFER_JIT_WORKER_TIMEOUT}"
 echo "FLASHINFER_ENABLE_JIT: ${FLASHINFER_ENABLE_JIT}"
+echo "VAGEN_FORCE_EAGER_ATTN: ${VAGEN_FORCE_EAGER_ATTN}"
 echo "VAGEN_SGLANG_INIT_TIMEOUT: ${VAGEN_SGLANG_INIT_TIMEOUT}"
 
 PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
@@ -451,6 +453,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   "+ray_kwargs.ray_init.runtime_env.env_vars.TORCHDYNAMO_DISABLE='${TORCHDYNAMO_DISABLE}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_JIT_WORKER_TIMEOUT='${FLASHINFER_JIT_WORKER_TIMEOUT}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_ENABLE_JIT='${FLASHINFER_ENABLE_JIT}'" \
+  "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_FORCE_EAGER_ATTN='${VAGEN_FORCE_EAGER_ATTN}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_INIT_TIMEOUT='${VAGEN_SGLANG_INIT_TIMEOUT}'" \
   trainer.critic_warmup=0 \
   "${CRITIC_ARGS[@]}" \
