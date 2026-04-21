@@ -268,7 +268,7 @@ export TORCHDYNAMO_DISABLE=1
 # FLASHINFER_JIT_WORKER_TIMEOUT: fallback timeout if an older FlashInfer tries to JIT anyway.
 export FLASHINFER_JIT_WORKER_TIMEOUT=60
 export FLASHINFER_ENABLE_JIT=0
-export VAGEN_FORCE_EAGER_ATTN=1
+VAGEN_FORCE_EAGER_ATTN=1
 
 # SGLang server init timeout: raise an informative error instead of hanging indefinitely.
 export VAGEN_SGLANG_INIT_TIMEOUT=600
