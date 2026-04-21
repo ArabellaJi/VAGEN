@@ -1,7 +1,11 @@
 #!/bin/bash
-# Usage: sbatch run_vagen_train_grpo_sglang_disk.sh [concat|window1]
+# Usage: sbatch run_vagen_train_grpo_sglang_disk.sh [concat|window1|strict1|ppo|ppo_window1|ppo_strict1]
 #   concat  (default): full concat mode, long sequences (prompt=4096 response=2560)
 #   window1: no-concat with 1-turn history window, short sequences (prompt=2048 response=512)
+#   strict1: concat mode with 1 primitive action per turn and harder 3-8 step Sokoban maps
+#   ppo: concat PPO baseline on the original Sokoban setup
+#   ppo_window1: no-concat PPO baseline with 1-turn history window
+#   ppo_strict1: concat PPO baseline on the stricter 1-action / 3-8 step Sokoban setup
 #SBATCH --job-name=vagen_grpo_sokoban_3b
 #SBATCH --account=p33224
 #SBATCH --partition=gengpu
@@ -10,7 +14,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=128G
-#SBATCH --time=24:00:00
+#SBATCH --time=16:00:00
 #SBATCH --output=/home/eiu4164/projects/VAGEN/logs/%x_%j.out
 #SBATCH --error=/home/eiu4164/projects/VAGEN/logs/%x_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -22,10 +26,13 @@ MODE="${1:-concat}"
 
 PROJECT_ROOT=/home/eiu4164/projects/VAGEN
 RUN_ROOT=/projects/p33224/vagen_runs
+REF_MODEL_PATH="Qwen/Qwen2.5-VL-3B-Instruct"
 
 case "${MODE}" in
   concat)
     EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
     DATA_MAX_PROMPT=1024
     DATA_MAX_RESPONSE=4096
     ROLLOUT_PROMPT=4096
@@ -41,10 +48,16 @@ case "${MODE}" in
     ACTOR_KL_LOSS_COEF=0.0
     AGENT_CONFIG=agent.yaml
     CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=grpo
+    ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
+    CRITIC_ARGS=(critic.enable=False)
     HISTORY_ARGS=()
     ;;
   window1)
     EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_window1
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
     DATA_MAX_PROMPT=2048
     DATA_MAX_RESPONSE=512
     ROLLOUT_PROMPT=2048
@@ -58,10 +71,136 @@ case "${MODE}" in
     ACTOR_KL_LOSS_COEF=0.0
     AGENT_CONFIG=agent_no_concat.yaml
     CONCAT_MULTI_TURN=False
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=grpo
+    ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
+    CRITIC_ARGS=(critic.enable=False)
     HISTORY_ARGS=(trainer.history_window_size=1 trainer.thumbnail_scale=0.25)
     ;;
+  strict1)
+    EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_strict1
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision_strict1.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision_strict1.yaml
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=4096
+    ROLLOUT_PROMPT=4096
+    ROLLOUT_RESPONSE=2560
+    MAX_BATCHED_TOKENS=8192
+    # Keep the concat training stack unchanged so this run isolates task difficulty
+    # and single-action control instead of also changing the RL optimizer setup.
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=True
+    ADV_ESTIMATOR=grpo
+    ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
+    CRITIC_ARGS=(critic.enable=False)
+    HISTORY_ARGS=()
+    ;;
+  ppo)
+    EXPERIMENT_NAME=sokoban_ppo_sglang_disk_3b
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=4096
+    ROLLOUT_PROMPT=4096
+    ROLLOUT_RESPONSE=2560
+    MAX_BATCHED_TOKENS=8192
+    # PPO adds a critic worker, so keep the single-GPU concat batch conservative.
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=1
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=gae
+    ADV_EXTRA_ARGS=()
+    CRITIC_ARGS=(
+      critic.enable=True
+      critic.optim.lr=1e-5
+      critic.model.use_remove_padding=True
+      critic.model.path="${REF_MODEL_PATH}"
+      critic.model.enable_gradient_checkpointing=True
+      critic.ppo_micro_batch_size_per_gpu=1
+      critic.model.fsdp_config.param_offload=True
+      critic.model.fsdp_config.optimizer_offload=True
+    )
+    HISTORY_ARGS=()
+    ;;
+  ppo_window1)
+    EXPERIMENT_NAME=sokoban_ppo_sglang_disk_3b_window1
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
+    DATA_MAX_PROMPT=2048
+    DATA_MAX_RESPONSE=512
+    ROLLOUT_PROMPT=2048
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=4096
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
+    ROLLOUT_N=1
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=no_concat_gae
+    ADV_EXTRA_ARGS=()
+    CRITIC_ARGS=(
+      critic.enable=True
+      critic.optim.lr=1e-5
+      critic.model.use_remove_padding=True
+      critic.model.path="${REF_MODEL_PATH}"
+      critic.model.enable_gradient_checkpointing=True
+      critic.ppo_micro_batch_size_per_gpu=1
+      critic.model.fsdp_config.param_offload=True
+      critic.model.fsdp_config.optimizer_offload=True
+    )
+    HISTORY_ARGS=(trainer.history_window_size=1 trainer.thumbnail_scale=0.25)
+    ;;
+  ppo_strict1)
+    EXPERIMENT_NAME=sokoban_ppo_sglang_disk_3b_strict1
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision_strict1.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision_strict1.yaml
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=4096
+    ROLLOUT_PROMPT=4096
+    ROLLOUT_RESPONSE=2560
+    MAX_BATCHED_TOKENS=8192
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=1
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=True
+    ADV_ESTIMATOR=gae
+    ADV_EXTRA_ARGS=()
+    CRITIC_ARGS=(
+      critic.enable=True
+      critic.optim.lr=1e-5
+      critic.model.use_remove_padding=True
+      critic.model.path="${REF_MODEL_PATH}"
+      critic.model.enable_gradient_checkpointing=True
+      critic.ppo_micro_batch_size_per_gpu=1
+      critic.model.fsdp_config.param_offload=True
+      critic.model.fsdp_config.optimizer_offload=True
+    )
+    HISTORY_ARGS=()
+    ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'concat' or 'window1'." >&2
+    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', or 'ppo_strict1'." >&2
     exit 1
     ;;
 esac
@@ -132,12 +271,16 @@ export VAGEN_SGLANG_INIT_TIMEOUT=600
 
 echo "MODE: ${MODE}"
 echo "EXPERIMENT_NAME: ${EXPERIMENT_NAME}"
+echo "TRAIN_FILE: ${TRAIN_FILE}"
+echo "VAL_FILE: ${VAL_FILE}"
 echo "TRAIN_BATCH_SIZE: ${TRAIN_BATCH_SIZE}"
 echo "PPO_MINI_BATCH_SIZE: ${PPO_MINI_BATCH_SIZE}"
 echo "ROLLOUT_N: ${ROLLOUT_N}"
 echo "VAL_BATCH_SIZE: ${VAL_BATCH_SIZE}"
+echo "ADV_ESTIMATOR: ${ADV_ESTIMATOR}"
 echo "ACTOR_USE_KL_LOSS: ${ACTOR_USE_KL_LOSS}"
 echo "ACTOR_KL_LOSS_COEF: ${ACTOR_KL_LOSS_COEF}"
+echo "LOG_IMAGE_ENABLE: ${LOG_IMAGE_ENABLE}"
 echo "CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-unset}"
 echo "CONDA_PREFIX=${CONDA_PREFIX:-unset}"
 echo "CUDA_HOME=${CUDA_HOME}"
@@ -234,17 +377,17 @@ echo "VAGEN_SGLANG_INIT_TIMEOUT: ${VAGEN_SGLANG_INIT_TIMEOUT}"
 PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   --config-path="${PWD}/vagen/configs" \
   --config-name="vagen_multiturn" \
-  data.train_files="${PWD}/examples/train/sokoban/train_sokoban_vision.yaml" \
-  data.val_files="${PWD}/examples/train/sokoban/val_sokoban_vision.yaml" \
+  data.train_files="${PWD}/${TRAIN_FILE}" \
+  data.val_files="${PWD}/${VAL_FILE}" \
   data.train_batch_size=${TRAIN_BATCH_SIZE} \
   data.val_batch_size=${VAL_BATCH_SIZE} \
   data.dataloader_num_workers=0 \
   data.max_prompt_length=${DATA_MAX_PROMPT} \
   data.max_response_length=${DATA_MAX_RESPONSE} \
-  algorithm.adv_estimator=grpo \
-  algorithm.norm_adv_by_std_in_grpo=True \
+  algorithm.adv_estimator=${ADV_ESTIMATOR} \
+  "${ADV_EXTRA_ARGS[@]}" \
   algorithm.kl_ctrl.kl_coef=0.0 \
-  actor_rollout_ref.model.path="Qwen/Qwen2.5-VL-3B-Instruct" \
+  actor_rollout_ref.model.path="${REF_MODEL_PATH}" \
   ++actor_rollout_ref.model.override_config.attn_implementation=eager \
   actor_rollout_ref.model.use_remove_padding=False \
   actor_rollout_ref.model.use_fused_kernels=False \
@@ -307,9 +450,9 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_ENABLE_JIT='${FLASHINFER_ENABLE_JIT}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_INIT_TIMEOUT='${VAGEN_SGLANG_INIT_TIMEOUT}'" \
   trainer.critic_warmup=0 \
-  critic.enable=False \
+  "${CRITIC_ARGS[@]}" \
   'trainer.logger=[console,wandb]' \
-  'trainer.log_image.enable=False' \
+  trainer.log_image.enable=${LOG_IMAGE_ENABLE} \
   trainer.resume_mode=disable \
   trainer.val_before_train=True \
   trainer.total_training_steps=400 \

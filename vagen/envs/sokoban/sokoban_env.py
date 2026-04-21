@@ -42,6 +42,7 @@ class SokobanEnvConfig:
     prompt_format: str = "wm"  # "free_think" or "wm"
     format_reward: float = 0.0  # Reward for following the format correctly
     success_reward: float = 1.0
+    require_informative_wm: bool = False  # Reject placeholder wm text like "..."
     
 class Sokoban(GymImageEnv):
     """
@@ -133,6 +134,9 @@ class Sokoban(GymImageEnv):
             max_actions=self.config.max_actions_per_step,
             prompt_format=self.config.prompt_format,
         )
+        if self._should_reject_uninformative_wm(parsed):
+            parsed["format_correct"] = False
+            parsed["actions"] = []
         reward = 0.0
         done = False
         info: Dict[str, Any] = {}
@@ -184,6 +188,31 @@ class Sokoban(GymImageEnv):
 
         obs = await self._render_async(init_obs=False)
         return obs, reward, done, info
+
+    def _should_reject_uninformative_wm(self, parsed: Dict[str, Any]) -> bool:
+        """Optionally require wm fields to contain structured content, not placeholders."""
+        if not self.config.require_informative_wm:
+            return False
+        if self.config.prompt_format not in {"wm", "free_wm"}:
+            return False
+        return not (
+            self._is_informative_wm_text(parsed.get("observation_content", ""))
+            and self._is_informative_wm_text(parsed.get("prediction_content", ""))
+        )
+
+    @staticmethod
+    def _is_informative_wm_text(text: str) -> bool:
+        text_norm = " ".join(str(text).strip().lower().split())
+        if not text_norm or text_norm in {"...", ".", ".."}:
+            return False
+        vertical_terms = ("above", "below", "same row")
+        horizontal_terms = ("left", "right", "same column")
+        required_entities = ("box", "target", "player")
+        return (
+            any(term in text_norm for term in vertical_terms)
+            and any(term in text_norm for term in horizontal_terms)
+            and all(entity in text_norm for entity in required_entities)
+        )
 
     # ------------------------------
     # Public helpers

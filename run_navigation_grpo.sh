@@ -30,7 +30,7 @@
 #SBATCH --nodelist=qgpu3016
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --time=24:00:00
+#SBATCH --time=16:00:00
 #SBATCH --output=/home/eiu4164/projects/VAGEN/logs/%x_%j.out
 #SBATCH --error=/home/eiu4164/projects/VAGEN/logs/%x_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
