@@ -32,6 +32,25 @@ def _install_transformers_eager_attention_fallback() -> None:
 
         target = "transformers.modeling_utils"
 
+        def should_fallback(exc: ImportError) -> bool:
+            message = str(exc)
+            return (
+                "flash_attn seems to be not installed" in message
+                or "Flash Attention 2 is not available" in message
+            )
+
+        def force_eager(config) -> None:
+            if config is None:
+                return
+            if hasattr(config, "_attn_implementation"):
+                config._attn_implementation = "eager"
+            if hasattr(config, "_attn_implementation_internal"):
+                config._attn_implementation_internal = "eager"
+            print(
+                "[sitecustomize] Falling back to eager attention because flash_attn is unavailable",
+                file=sys.stderr,
+            )
+
         def patch_module(module) -> None:
             pre_trained_model = getattr(module, "PreTrainedModel", None)
             if pre_trained_model is None:
@@ -39,31 +58,63 @@ def _install_transformers_eager_attention_fallback() -> None:
             if getattr(pre_trained_model, "_vagen_eager_patch_installed", False):
                 return
 
-            original = pre_trained_model._check_and_enable_flash_attn_2.__func__
+            if hasattr(pre_trained_model, "_check_and_enable_flash_attn_2"):
+                original = pre_trained_model._check_and_enable_flash_attn_2.__func__
 
-            def patched(cls, config, *args, **kwargs):
-                try:
-                    return original(cls, config, *args, **kwargs)
-                except ImportError as exc:
-                    message = str(exc)
-                    should_fallback = (
-                        "flash_attn seems to be not installed" in message
-                        or "Flash Attention 2 is not available" in message
-                    )
-                    if not should_fallback:
-                        raise
+                def patched_check_and_enable(cls, config, *args, **kwargs):
+                    try:
+                        return original(cls, config, *args, **kwargs)
+                    except ImportError as exc:
+                        if not should_fallback(exc):
+                            raise
+                        force_eager(config)
+                        return config
 
-                    if hasattr(config, "_attn_implementation"):
-                        config._attn_implementation = "eager"
-                    if hasattr(config, "_attn_implementation_internal"):
-                        config._attn_implementation_internal = "eager"
-                    print(
-                        "[sitecustomize] Falling back to eager attention because flash_attn is unavailable",
-                        file=sys.stderr,
-                    )
-                    return config
+                pre_trained_model._check_and_enable_flash_attn_2 = classmethod(patched_check_and_enable)
 
-            pre_trained_model._check_and_enable_flash_attn_2 = classmethod(patched)
+            if hasattr(pre_trained_model, "_flash_attn_2_can_dispatch"):
+                original_dispatch = pre_trained_model._flash_attn_2_can_dispatch
+
+                def patched_flash_dispatch(self, *args, **kwargs):
+                    try:
+                        return original_dispatch(self, *args, **kwargs)
+                    except ImportError as exc:
+                        if not should_fallback(exc):
+                            raise
+                        force_eager(getattr(self, "config", None))
+                        return False
+
+                pre_trained_model._flash_attn_2_can_dispatch = patched_flash_dispatch
+
+            if hasattr(pre_trained_model, "get_correct_attn_implementation"):
+                original_get_impl = pre_trained_model.get_correct_attn_implementation
+
+                def patched_get_impl(self, *args, **kwargs):
+                    try:
+                        return original_get_impl(self, *args, **kwargs)
+                    except ImportError as exc:
+                        if not should_fallback(exc):
+                            raise
+                        force_eager(getattr(self, "config", None))
+                        return "eager"
+
+                pre_trained_model.get_correct_attn_implementation = patched_get_impl
+
+            if hasattr(pre_trained_model, "_check_and_adjust_attn_implementation"):
+                original_adjust_impl = pre_trained_model._check_and_adjust_attn_implementation
+
+                def patched_adjust_impl(self, *args, **kwargs):
+                    try:
+                        return original_adjust_impl(self, *args, **kwargs)
+                    except ImportError as exc:
+                        if not should_fallback(exc):
+                            raise
+                        config = getattr(self, "config", None)
+                        force_eager(config)
+                        return config
+
+                pre_trained_model._check_and_adjust_attn_implementation = patched_adjust_impl
+
             pre_trained_model._vagen_eager_patch_installed = True
             print("[sitecustomize] Installed Transformers eager-attention fallback", file=sys.stderr)
 
