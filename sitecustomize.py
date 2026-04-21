@@ -32,11 +32,13 @@ def _install_transformers_eager_attention_fallback() -> None:
 
         target = "transformers.modeling_utils"
 
-        def should_fallback(exc: ImportError) -> bool:
-            message = str(exc)
+        def should_fallback(exc: Exception) -> bool:
+            message = str(exc).lower()
             return (
                 "flash_attn seems to be not installed" in message
-                or "Flash Attention 2 is not available" in message
+                or "flash attention 2 is not available" in message
+                or "could not find the currently requested flash attention implementation" in message
+                or ("flash attention implementation" in message and "flash_attention_2" in message)
             )
 
         def force_eager(config) -> None:
@@ -51,6 +53,9 @@ def _install_transformers_eager_attention_fallback() -> None:
                 file=sys.stderr,
             )
 
+        def eager_impl():
+            return "eager"
+
         def patch_module(module) -> None:
             pre_trained_model = getattr(module, "PreTrainedModel", None)
             if pre_trained_model is None:
@@ -64,7 +69,7 @@ def _install_transformers_eager_attention_fallback() -> None:
                 def patched_check_and_enable(cls, config, *args, **kwargs):
                     try:
                         return original(cls, config, *args, **kwargs)
-                    except ImportError as exc:
+                    except Exception as exc:
                         if not should_fallback(exc):
                             raise
                         force_eager(config)
@@ -78,7 +83,7 @@ def _install_transformers_eager_attention_fallback() -> None:
                 def patched_flash_dispatch(self, *args, **kwargs):
                     try:
                         return original_dispatch(self, *args, **kwargs)
-                    except ImportError as exc:
+                    except Exception as exc:
                         if not should_fallback(exc):
                             raise
                         force_eager(getattr(self, "config", None))
@@ -92,11 +97,11 @@ def _install_transformers_eager_attention_fallback() -> None:
                 def patched_get_impl(self, *args, **kwargs):
                     try:
                         return original_get_impl(self, *args, **kwargs)
-                    except ImportError as exc:
+                    except Exception as exc:
                         if not should_fallback(exc):
                             raise
                         force_eager(getattr(self, "config", None))
-                        return "eager"
+                        return eager_impl()
 
                 pre_trained_model.get_correct_attn_implementation = patched_get_impl
 
@@ -106,12 +111,12 @@ def _install_transformers_eager_attention_fallback() -> None:
                 def patched_adjust_impl(self, *args, **kwargs):
                     try:
                         return original_adjust_impl(self, *args, **kwargs)
-                    except ImportError as exc:
+                    except Exception as exc:
                         if not should_fallback(exc):
                             raise
                         config = getattr(self, "config", None)
                         force_eager(config)
-                        return config
+                        return eager_impl()
 
                 pre_trained_model._check_and_adjust_attn_implementation = patched_adjust_impl
 
