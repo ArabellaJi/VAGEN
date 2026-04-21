@@ -1183,6 +1183,23 @@ class RayPPOTrainer:
 
         import time
 
+        pad_size = 0
+        num_repeat = self.config.actor_rollout_ref.rollout.n
+        if batch.meta_info.get("validate", False):
+            num_repeat = self.config.actor_rollout_ref.rollout.val_kwargs.n
+
+        # Async agent-loop rollout requires equal chunks across workers. Keep
+        # concat-mode training resilient when batch size and worker count drift.
+        if self.concat_multi_turn:
+            size_divisor = self.config.actor_rollout_ref.rollout.agent.num_workers
+            if size_divisor > 1 and len(batch) % size_divisor != 0:
+                original_batch_size = len(batch)
+                batch, pad_size = pad_dataproto_to_divisor(batch, size_divisor)
+                print(
+                    f"[TIMING] RayPPOTrainer: padded generate batch "
+                    f"from {original_batch_size} to {len(batch)} for {size_divisor} agent workers"
+                )
+
         print(
             f"[TIMING] RayPPOTrainer: _generate_sequences START "
             f"global_step={self.global_steps} batch_size={len(batch)}"
@@ -1192,6 +1209,8 @@ class RayPPOTrainer:
         print(f"[TIMING] RayPPOTrainer: disk-sync phase done in {time.time()-t0:.1f}s, calling generate_sequences")
         t1 = time.time()
         output = self.async_rollout_manager.generate_sequences(batch)
+        if pad_size > 0 and self.concat_multi_turn:
+            output = unpad_dataproto(output, pad_size=pad_size * num_repeat)
         print(
             f"[TIMING] RayPPOTrainer: generate_sequences DONE in {time.time()-t1:.1f}s "
             f"(total _generate_sequences={time.time()-t0:.1f}s)"

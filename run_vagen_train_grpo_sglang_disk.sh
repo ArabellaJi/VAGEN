@@ -27,6 +27,7 @@ MODE="${1:-concat}"
 PROJECT_ROOT=/home/eiu4164/projects/VAGEN
 RUN_ROOT=/projects/p33224/vagen_runs
 REF_MODEL_PATH="Qwen/Qwen2.5-VL-3B-Instruct"
+MAX_AGENT_NUM_WORKERS=4
 
 case "${MODE}" in
   concat)
@@ -208,6 +209,18 @@ case "${MODE}" in
     ;;
 esac
 
+# Async agent-loop rollout currently splits prompts with an equal-size chunk
+# requirement, so choose the largest worker count (up to the cap) that evenly
+# divides the per-step prompt count.
+ROLLOUT_PROMPT_COUNT=$((TRAIN_BATCH_SIZE * ROLLOUT_N))
+AGENT_NUM_WORKERS=${ROLLOUT_PROMPT_COUNT}
+if [ "${AGENT_NUM_WORKERS}" -gt "${MAX_AGENT_NUM_WORKERS}" ]; then
+  AGENT_NUM_WORKERS=${MAX_AGENT_NUM_WORKERS}
+fi
+while [ "${AGENT_NUM_WORKERS}" -gt 1 ] && [ $((ROLLOUT_PROMPT_COUNT % AGENT_NUM_WORKERS)) -ne 0 ]; do
+  AGENT_NUM_WORKERS=$((AGENT_NUM_WORKERS - 1))
+done
+
 mkdir -p "${PROJECT_ROOT}/logs"
 mkdir -p "${RUN_ROOT}"
 cd "${PROJECT_ROOT}"
@@ -280,6 +293,8 @@ echo "VAL_FILE: ${VAL_FILE}"
 echo "TRAIN_BATCH_SIZE: ${TRAIN_BATCH_SIZE}"
 echo "PPO_MINI_BATCH_SIZE: ${PPO_MINI_BATCH_SIZE}"
 echo "ROLLOUT_N: ${ROLLOUT_N}"
+echo "ROLLOUT_PROMPT_COUNT: ${ROLLOUT_PROMPT_COUNT}"
+echo "AGENT_NUM_WORKERS: ${AGENT_NUM_WORKERS}"
 echo "VAL_BATCH_SIZE: ${VAL_BATCH_SIZE}"
 echo "ADV_ESTIMATOR: ${ADV_ESTIMATOR}"
 echo "ACTOR_USE_KL_LOSS: ${ACTOR_USE_KL_LOSS}"
@@ -423,7 +438,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.rollout.enable_chunked_prefill=False \
   +actor_rollout_ref.rollout.engine_kwargs.sglang.sampling_backend=pytorch \
   actor_rollout_ref.rollout.multi_turn.enable=True \
-  actor_rollout_ref.rollout.agent.num_workers=4 \
+  actor_rollout_ref.rollout.agent.num_workers=${AGENT_NUM_WORKERS} \
   actor_rollout_ref.rollout.agent.agent_loop_config_path="${PWD}/vagen/configs/${AGENT_CONFIG}" \
   actor_rollout_ref.rollout.disable_log_stats=False \
   trainer.concat_multi_turn=${CONCAT_MULTI_TURN} \
