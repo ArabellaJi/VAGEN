@@ -1,14 +1,16 @@
 #!/bin/bash
-# Usage: sbatch run_vagen_train_grpo_sglang_disk.sh [concat|window1|strict1|ppo|ppo_window1|ppo_strict1|ppo_strict1_smoke|text|vision_fmt]
-#   concat  (default): full concat mode, long sequences (prompt=4096 response=2560)
-#   window1: no-concat with 1-turn history window, short sequences (prompt=2048 response=512)
-#   strict1: concat mode with 1 primitive action per turn and harder 3-8 step Sokoban maps
-#   ppo: concat PPO baseline on the original Sokoban setup
-#   ppo_window1: no-concat PPO baseline with 1-turn history window
-#   ppo_strict1: concat PPO baseline on the stricter 1-action / 3-8 step Sokoban setup
-#   ppo_strict1_smoke: fast PPO strict1 sanity check with no-concat rollout and no validation
-#   text: text rendering + wm prompt — diagnostic to isolate visual grounding failure
-#   vision_fmt: vision rendering + format_reward=0.1 — fix for action-explosion degenerate policy
+# Usage: sbatch [--gres=gpu:h100:N] run_vagen_train_grpo_sglang_disk.sh <MODE>
+#   concat       (default): 1 GPU, 8 traj/step — 1-GPU baseline
+#   window1:     1 GPU, no-concat, 1-turn history window
+#   strict1:     1 GPU, concat, harder 3-8 step maps
+#   ppo:         1 GPU, concat PPO baseline
+#   ppo_window1: 1 GPU, no-concat PPO baseline
+#   ppo_strict1: 1 GPU, concat PPO on strict1 maps
+#   ppo_strict1_smoke: fast 1-GPU PPO sanity check (10 steps, no val)
+#   text:        1 GPU, text rendering — diagnose visual grounding failure
+#   vision_fmt:  1 GPU, vision + format_penalty=-0.1 — fix action-explosion
+#   2gpu:        2 GPUs, 64 traj/step  — sbatch --gres=gpu:h100:2 ... 2gpu
+#   4gpu:        4 GPUs, 256 traj/step — sbatch --gres=gpu:h100:4 ... 4gpu  (matches paper)
 #SBATCH --job-name=vagen_grpo_sokoban_3b
 #SBATCH --account=p33224
 #SBATCH --partition=gengpu
@@ -33,6 +35,8 @@ MODEL_REPO_ID="Qwen/Qwen2.5-VL-3B-Instruct"
 REF_MODEL_PATH="${REF_MODEL_PATH:-${HF_MODEL_LOCAL_PATH:-${MODEL_REPO_ID}}}"
 HF_HOME_DEFAULT=/projects/p33224/hf_cache
 MAX_AGENT_NUM_WORKERS=4
+N_GPUS_PER_NODE=1      # overridden by 2gpu/4gpu modes
+GPU_MEMORY_UTIL=0.4    # overridden by 2gpu/4gpu modes (more GPUs → less rollout pressure per GPU)
 VAL_BEFORE_TRAIN=True
 TOTAL_TRAINING_STEPS=400
 SAVE_FREQ=20
@@ -319,8 +323,62 @@ case "${MODE}" in
     CRITIC_ARGS=(critic.enable=False)
     HISTORY_ARGS=()
     ;;
+  2gpu)
+    # Fix 3 (partial): 2 H100s — 8x more effective trajectories than 1-GPU concat.
+    # Submit with: sbatch --gres=gpu:h100:2 run_vagen_train_grpo_sglang_disk.sh 2gpu
+    EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_2gpu
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=4096
+    ROLLOUT_PROMPT=4096
+    ROLLOUT_RESPONSE=2560
+    MAX_BATCHED_TOKENS=10000
+    TRAIN_BATCH_SIZE=8
+    PPO_MINI_BATCH_SIZE=8
+    ROLLOUT_N=8
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=grpo
+    ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
+    CRITIC_ARGS=(critic.enable=False)
+    HISTORY_ARGS=()
+    N_GPUS_PER_NODE=2
+    GPU_MEMORY_UTIL=0.5
+    ;;
+  4gpu)
+    # Fix 3 (full): 4 H100s — matches paper's exact GRPO setup (256 trajectories/step).
+    # Submit with: sbatch --gres=gpu:h100:4 run_vagen_train_grpo_sglang_disk.sh 4gpu
+    EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_4gpu
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=4096
+    ROLLOUT_PROMPT=4096
+    ROLLOUT_RESPONSE=2560
+    MAX_BATCHED_TOKENS=10000
+    TRAIN_BATCH_SIZE=32
+    PPO_MINI_BATCH_SIZE=32
+    ROLLOUT_N=8
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=grpo
+    ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
+    CRITIC_ARGS=(critic.enable=False)
+    HISTORY_ARGS=()
+    N_GPUS_PER_NODE=4
+    GPU_MEMORY_UTIL=0.6
+    ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', 'ppo_strict1', 'ppo_strict1_smoke', 'text', or 'vision_fmt'." >&2
+    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', 'ppo_strict1', 'ppo_strict1_smoke', 'text', 'vision_fmt', '2gpu', or '4gpu'." >&2
     exit 1
     ;;
 esac
@@ -436,6 +494,8 @@ echo "ROLLOUT_PROMPT_COUNT: ${ROLLOUT_PROMPT_COUNT}"
 echo "AGENT_NUM_WORKERS: ${AGENT_NUM_WORKERS}"
 echo "VAL_BATCH_SIZE: ${VAL_BATCH_SIZE}"
 echo "ADV_ESTIMATOR: ${ADV_ESTIMATOR}"
+echo "N_GPUS_PER_NODE: ${N_GPUS_PER_NODE}"
+echo "GPU_MEMORY_UTIL: ${GPU_MEMORY_UTIL}"
 echo "ACTOR_USE_KL_LOSS: ${ACTOR_USE_KL_LOSS}"
 echo "ACTOR_KL_LOSS_COEF: ${ACTOR_KL_LOSS_COEF}"
 echo "LOG_IMAGE_ENABLE: ${LOG_IMAGE_ENABLE}"
@@ -579,7 +639,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.rollout.response_length=${ROLLOUT_RESPONSE} \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
   actor_rollout_ref.rollout.max_num_batched_tokens=${MAX_BATCHED_TOKENS} \
-  actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+  actor_rollout_ref.rollout.gpu_memory_utilization=${GPU_MEMORY_UTIL} \
   actor_rollout_ref.rollout.enforce_eager=True \
   actor_rollout_ref.rollout.free_cache_engine=True \
   actor_rollout_ref.rollout.enable_chunked_prefill=False \
@@ -590,7 +650,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.rollout.disable_log_stats=False \
   trainer.concat_multi_turn=${CONCAT_MULTI_TURN} \
   "${HISTORY_ARGS[@]}" \
-  trainer.n_gpus_per_node=1 \
+  trainer.n_gpus_per_node=${N_GPUS_PER_NODE} \
   trainer.nnodes=1 \
   +ray_kwargs.ray_init.include_dashboard=False \
   +ray_kwargs.ray_init.num_cpus=${RAY_NUM_CPUS} \
