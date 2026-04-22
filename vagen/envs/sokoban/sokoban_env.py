@@ -40,7 +40,8 @@ class SokobanEnvConfig:
     reset_seed_max_tries: int = 10000  # Max tries to find a valid seed
     min_solution_bfs_max_depth: int = 200  # Max BFS depth for solution
     prompt_format: str = "wm"  # "free_think" or "wm"
-    format_reward: float = 0.0  # Reward for following the format correctly
+    format_reward: float = 0.0  # Per-turn bonus when at least one valid action is executed
+    format_penalty: float = 0.0  # Per-turn penalty (negative) when format parsing yields no valid actions
     success_reward: float = 1.0
     require_informative_wm: bool = False  # Reject placeholder wm text like "..."
     
@@ -173,9 +174,10 @@ class Sokoban(GymImageEnv):
                 metrics["turn_metrics"]["action_is_valid"] = False
                 break
 
-        # Keep your shaping logic (no-op here)
         if self.valid_actions:
             reward += self.config.format_reward
+        else:
+            reward += self.config.format_penalty
 
         # Effective action: detect player position change
         metrics["turn_metrics"]["action_is_effective"] = not np.array_equal(

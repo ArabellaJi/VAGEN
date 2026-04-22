@@ -1,5 +1,5 @@
 #!/bin/bash
-# Usage: sbatch run_vagen_train_grpo_sglang_disk.sh [concat|window1|strict1|ppo|ppo_window1|ppo_strict1|ppo_strict1_smoke]
+# Usage: sbatch run_vagen_train_grpo_sglang_disk.sh [concat|window1|strict1|ppo|ppo_window1|ppo_strict1|ppo_strict1_smoke|text|vision_fmt]
 #   concat  (default): full concat mode, long sequences (prompt=4096 response=2560)
 #   window1: no-concat with 1-turn history window, short sequences (prompt=2048 response=512)
 #   strict1: concat mode with 1 primitive action per turn and harder 3-8 step Sokoban maps
@@ -7,6 +7,8 @@
 #   ppo_window1: no-concat PPO baseline with 1-turn history window
 #   ppo_strict1: concat PPO baseline on the stricter 1-action / 3-8 step Sokoban setup
 #   ppo_strict1_smoke: fast PPO strict1 sanity check with no-concat rollout and no validation
+#   text: text rendering + wm prompt — diagnostic to isolate visual grounding failure
+#   vision_fmt: vision rendering + format_reward=0.1 — fix for action-explosion degenerate policy
 #SBATCH --job-name=vagen_grpo_sokoban_3b
 #SBATCH --account=p33224
 #SBATCH --partition=gengpu
@@ -263,8 +265,62 @@ case "${MODE}" in
     TEST_FREQ=0
     LOG_VAL_GENERATIONS=0
     ;;
+  text)
+    # Diagnostic: text rendering + wm prompt, same concat hyperparams as baseline.
+    # Goal: isolate whether visual grounding failure is the root cause.
+    # Compare this run's reward curve against concat (vision) to decide if
+    # switching to a better vision backbone is necessary.
+    EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_text
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_wm_text.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_wm_text.yaml
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=4096
+    ROLLOUT_PROMPT=4096
+    ROLLOUT_RESPONSE=2560
+    MAX_BATCHED_TOKENS=8192
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=grpo
+    ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
+    CRITIC_ARGS=(critic.enable=False)
+    HISTORY_ARGS=()
+    ;;
+  vision_fmt)
+    # Fix 1: vision rendering + format_penalty=-0.1 to break action-explosion degenerate policy.
+    # format_penalty gives -0.1 per turn where no valid action is executed (due to action
+    # explosion truncating the response before </answer> closes). Does not add reward for
+    # correct format, so the success signal (1.0) remains the dominant incentive.
+    EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_vision_fmt
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision_fmt.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=4096
+    ROLLOUT_PROMPT=4096
+    ROLLOUT_RESPONSE=2560
+    MAX_BATCHED_TOKENS=8192
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=grpo
+    ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
+    CRITIC_ARGS=(critic.enable=False)
+    HISTORY_ARGS=()
+    ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', 'ppo_strict1', or 'ppo_strict1_smoke'." >&2
+    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', 'ppo_strict1', 'ppo_strict1_smoke', 'text', or 'vision_fmt'." >&2
     exit 1
     ;;
 esac
