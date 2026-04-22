@@ -1,11 +1,12 @@
 #!/bin/bash
-# Usage: sbatch run_vagen_train_grpo_sglang_disk.sh [concat|window1|strict1|ppo|ppo_window1|ppo_strict1]
+# Usage: sbatch run_vagen_train_grpo_sglang_disk.sh [concat|window1|strict1|ppo|ppo_window1|ppo_strict1|ppo_strict1_smoke]
 #   concat  (default): full concat mode, long sequences (prompt=4096 response=2560)
 #   window1: no-concat with 1-turn history window, short sequences (prompt=2048 response=512)
 #   strict1: concat mode with 1 primitive action per turn and harder 3-8 step Sokoban maps
 #   ppo: concat PPO baseline on the original Sokoban setup
 #   ppo_window1: no-concat PPO baseline with 1-turn history window
 #   ppo_strict1: concat PPO baseline on the stricter 1-action / 3-8 step Sokoban setup
+#   ppo_strict1_smoke: fast PPO strict1 sanity check with no-concat rollout and no validation
 #SBATCH --job-name=vagen_grpo_sokoban_3b
 #SBATCH --account=p33224
 #SBATCH --partition=gengpu
@@ -30,6 +31,11 @@ MODEL_REPO_ID="Qwen/Qwen2.5-VL-3B-Instruct"
 REF_MODEL_PATH="${REF_MODEL_PATH:-${HF_MODEL_LOCAL_PATH:-${MODEL_REPO_ID}}}"
 HF_HOME_DEFAULT=/projects/p33224/hf_cache
 MAX_AGENT_NUM_WORKERS=4
+VAL_BEFORE_TRAIN=True
+TOTAL_TRAINING_STEPS=400
+SAVE_FREQ=20
+TEST_FREQ=20
+LOG_VAL_GENERATIONS=5
 
 # Resolve the shared HF snapshot early so all downstream settings, including
 # PPO critic args, see the same local model path.
@@ -217,8 +223,48 @@ case "${MODE}" in
     )
     HISTORY_ARGS=()
     ;;
+  ppo_strict1_smoke)
+    EXPERIMENT_NAME=sokoban_ppo_sglang_disk_3b_strict1_smoke
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision_strict1.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision_strict1.yaml
+    DATA_MAX_PROMPT=2048
+    DATA_MAX_RESPONSE=512
+    ROLLOUT_PROMPT=2048
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=4096
+    # Pipeline sanity-check mode: prioritize finishing step 1 and emitting W&B
+    # training metrics quickly rather than matching the full strict1 setup.
+    TRAIN_BATCH_SIZE=1
+    PPO_MINI_BATCH_SIZE=1
+    ROLLOUT_N=1
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=no_concat_gae
+    ADV_EXTRA_ARGS=()
+    CRITIC_ARGS=(
+      critic.enable=True
+      critic.optim.lr=1e-5
+      ++critic.model.override_config.attn_implementation=eager
+      critic.model.use_remove_padding=False
+      critic.model.path="${REF_MODEL_PATH}"
+      critic.model.enable_gradient_checkpointing=True
+      critic.ppo_micro_batch_size_per_gpu=1
+      critic.model.fsdp_config.param_offload=True
+      critic.model.fsdp_config.optimizer_offload=True
+    )
+    HISTORY_ARGS=(trainer.history_window_size=1 trainer.thumbnail_scale=0.25)
+    VAL_BEFORE_TRAIN=False
+    TOTAL_TRAINING_STEPS=10
+    SAVE_FREQ=0
+    TEST_FREQ=0
+    LOG_VAL_GENERATIONS=0
+    ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', or 'ppo_strict1'." >&2
+    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', 'ppo_strict1', or 'ppo_strict1_smoke'." >&2
     exit 1
     ;;
 esac
@@ -337,6 +383,11 @@ echo "ADV_ESTIMATOR: ${ADV_ESTIMATOR}"
 echo "ACTOR_USE_KL_LOSS: ${ACTOR_USE_KL_LOSS}"
 echo "ACTOR_KL_LOSS_COEF: ${ACTOR_KL_LOSS_COEF}"
 echo "LOG_IMAGE_ENABLE: ${LOG_IMAGE_ENABLE}"
+echo "VAL_BEFORE_TRAIN: ${VAL_BEFORE_TRAIN}"
+echo "TOTAL_TRAINING_STEPS: ${TOTAL_TRAINING_STEPS}"
+echo "SAVE_FREQ: ${SAVE_FREQ}"
+echo "TEST_FREQ: ${TEST_FREQ}"
+echo "LOG_VAL_GENERATIONS: ${LOG_VAL_GENERATIONS}"
 echo "CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-unset}"
 echo "CONDA_PREFIX=${CONDA_PREFIX:-unset}"
 echo "CUDA_HOME=${CUDA_HOME}"
@@ -517,13 +568,13 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   'trainer.logger=[console,wandb]' \
   trainer.log_image.enable=${LOG_IMAGE_ENABLE} \
   trainer.resume_mode=disable \
-  trainer.val_before_train=True \
-  trainer.total_training_steps=400 \
-  trainer.save_freq=20 \
-  trainer.test_freq=20 \
+  trainer.val_before_train=${VAL_BEFORE_TRAIN} \
+  trainer.total_training_steps=${TOTAL_TRAINING_STEPS} \
+  trainer.save_freq=${SAVE_FREQ} \
+  trainer.test_freq=${TEST_FREQ} \
   trainer.project_name="vagen_sokoban" \
   trainer.experiment_name="${EXPERIMENT_NAME}" \
   trainer.default_local_dir="${RUN_ROOT}/checkpoints/${EXPERIMENT_NAME}" \
   trainer.validation_data_dir="${RUN_ROOT}/validation/${EXPERIMENT_NAME}" \
   trainer.rollout_data_dir="${RUN_ROOT}/rollout/${EXPERIMENT_NAME}" \
-  trainer.log_val_generations=5
+  trainer.log_val_generations=${LOG_VAL_GENERATIONS}
