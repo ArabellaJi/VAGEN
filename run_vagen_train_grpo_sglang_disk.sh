@@ -585,7 +585,7 @@ VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE=true
 
 RAY_LOG_ARCHIVE_DIR="${PROJECT_ROOT}/logs/ray/${SLURM_JOB_ID}"
 SYNC_ARCHIVE_DIR="${PROJECT_ROOT}/logs/sglang_sync/${SLURM_JOB_ID}"
-RAY_NUM_CPUS=8
+RAY_NUM_CPUS="${SLURM_CPUS_PER_TASK:-4}"
 
 archive_ray_logs() {
   local ray_logs_dir=""

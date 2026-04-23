@@ -2,10 +2,10 @@
 # ACCESS / Delta variant of run_vagen_train_grpo_sglang_disk.sh.
 # Training modes and Hydra arguments are kept aligned with the Quest script.
 #
-# Usage: sbatch [--gpus-per-node=N] run_vagen_train_grpo_sglang_disk_access.sh <MODE>
+# Usage: sbatch [--gpus-per-node=N] /u/wji1/VAGEN/run_vagen_train_grpo_sglang_disk_access.sh <MODE>
 # Default partition below is Delta A100. To use H200, override at submit time:
-#   sbatch --partition=gpuH200x8 run_vagen_train_grpo_sglang_disk_access.sh concat
-#   sbatch --partition=gpuH200x8 --gpus-per-node=4 run_vagen_train_grpo_sglang_disk_access.sh 4gpu
+#   sbatch --partition=gpuH200x8 /u/wji1/VAGEN/run_vagen_train_grpo_sglang_disk_access.sh concat
+#   sbatch --partition=gpuH200x8 --gpus-per-node=4 /u/wji1/VAGEN/run_vagen_train_grpo_sglang_disk_access.sh 4gpu
 #   concat       (default): 1 GPU, 8 traj/step
 #   window1:     1 GPU, no-concat, 1-turn history window
 #   strict1:     1 GPU, concat, harder 3-8 step maps
@@ -32,8 +32,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=128G
 #SBATCH --time=16:00:00
-#SBATCH --output=%x_%j.out
-#SBATCH --error=%x_%j.err
+#SBATCH --output=/u/wji1/VAGEN/logs/%x_%j.out
+#SBATCH --error=/u/wji1/VAGEN/logs/%x_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=wenlanji2026@u.northwestern.edu
 
@@ -42,7 +42,15 @@ set -eo pipefail
 MODE="${1:-concat}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="${PROJECT_ROOT:-${SCRIPT_DIR}}"
+DEFAULT_PROJECT_ROOT="/u/wji1/VAGEN"
+if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+  # On Delta, sbatch may execute a staged copy under /var/spool/slurmd/... .
+  # Prefer the original submit directory when it is the repo root.
+  if [ -d "${SLURM_SUBMIT_DIR}/vagen/configs" ]; then
+    DEFAULT_PROJECT_ROOT="${SLURM_SUBMIT_DIR}"
+  fi
+fi
+PROJECT_ROOT="${PROJECT_ROOT:-${DEFAULT_PROJECT_ROOT}}"
 ACCESS_ACCOUNT="${ACCESS_ACCOUNT:-bfea-delta-gpu}"
 ACCESS_PROJECT_CODE="${ACCESS_PROJECT_CODE:-${ACCESS_ACCOUNT%%-delta-gpu*}}"
 if [ "${ACCESS_PROJECT_CODE}" = "${ACCESS_ACCOUNT}" ]; then
@@ -418,6 +426,14 @@ while [ "${AGENT_NUM_WORKERS}" -gt 1 ] && [ $((ROLLOUT_PROMPT_COUNT % AGENT_NUM_
   AGENT_NUM_WORKERS=$((AGENT_NUM_WORKERS - 1))
 done
 
+if [ ! -d "${PROJECT_ROOT}/vagen/configs" ]; then
+  echo "PROJECT_ROOT does not look like the VAGEN repo root: ${PROJECT_ROOT}" >&2
+  echo "SCRIPT_DIR=${SCRIPT_DIR}" >&2
+  echo "SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-unset}" >&2
+  echo "Set PROJECT_ROOT explicitly or submit with sbatch from the repo root." >&2
+  exit 1
+fi
+
 mkdir -p "${PROJECT_ROOT}/logs"
 mkdir -p "${RUN_ROOT}"
 mkdir -p "${HF_HOME_DEFAULT}"
@@ -598,6 +614,8 @@ echo "ACCESS_PROJECT_CODE: ${ACCESS_PROJECT_CODE}"
 echo "ACCESS_WORK_ROOT: ${ACCESS_WORK_ROOT}"
 echo "DEFAULT_A100_PARTITION: ${DEFAULT_A100_PARTITION}"
 echo "DEFAULT_H200_PARTITION: ${DEFAULT_H200_PARTITION}"
+echo "SCRIPT_DIR: ${SCRIPT_DIR}"
+echo "SLURM_SUBMIT_DIR: ${SLURM_SUBMIT_DIR:-unset}"
 echo "SLURM_ACTIVE_PARTITION: ${SLURM_ACTIVE_PARTITION}"
 echo "DETECTED_GPU_NAME: ${DETECTED_GPU_NAME:-unknown}"
 echo "ACCESS_GPU_CLASS: ${ACCESS_GPU_CLASS}"
@@ -668,7 +686,7 @@ VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE=true
 
 RAY_LOG_ARCHIVE_DIR="${PROJECT_ROOT}/logs/ray/${SLURM_JOB_ID}"
 SYNC_ARCHIVE_DIR="${PROJECT_ROOT}/logs/sglang_sync/${SLURM_JOB_ID}"
-RAY_NUM_CPUS=8
+RAY_NUM_CPUS="${SLURM_CPUS_PER_TASK:-4}"
 
 archive_ray_logs() {
   local ray_logs_dir=""
