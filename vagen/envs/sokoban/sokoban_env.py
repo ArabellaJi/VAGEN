@@ -44,6 +44,7 @@ class SokobanEnvConfig:
     format_penalty: float = 0.0  # Per-turn penalty (negative) when format parsing yields no valid actions
     success_reward: float = 1.0
     require_informative_wm: bool = False  # Reject placeholder wm text like "..."
+    render_scale: int = 4  # Upscale factor for vision rendering (default 4 → ~384×384 for 6×6 room)
     
 class Sokoban(GymImageEnv):
     """
@@ -251,9 +252,16 @@ class Sokoban(GymImageEnv):
         if self.config.render_mode == "vision":
             # Offload blocking render to a thread pool
             rgb_array = await asyncio.to_thread(self.env.render, "rgb_array")
+            pil_img = numpy_to_pil(rgb_array)
+            if self.config.render_scale > 1:
+                w, h = pil_img.size
+                pil_img = pil_img.resize(
+                    (w * self.config.render_scale, h * self.config.render_scale),
+                    Image.NEAREST,
+                )
             img_str = self.config.image_placeholder
             multi_modal_input = {
-                self.config.image_placeholder: [numpy_to_pil(rgb_array)]
+                self.config.image_placeholder: [pil_img]
             }
         else:
             img_str = self._grid_to_text()
