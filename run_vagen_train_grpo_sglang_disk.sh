@@ -20,7 +20,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=128G
-#SBATCH --time=16:00:00
+#SBATCH --time=10:00:00
 #SBATCH --output=/home/eiu4164/projects/VAGEN/logs/%x_%j.out
 #SBATCH --error=/home/eiu4164/projects/VAGEN/logs/%x_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
