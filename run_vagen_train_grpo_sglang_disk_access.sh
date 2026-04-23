@@ -450,6 +450,22 @@ load_first_available_module() {
   return 1
 }
 
+safe_module_reset() {
+  local reset_status=0
+
+  if ! command -v module >/dev/null 2>&1; then
+    echo "module command is unavailable before environment setup; skipping module reset." >&2
+    return 0
+  fi
+
+  module reset || reset_status=$?
+  if [ "${reset_status}" -ne 0 ]; then
+    echo "WARNING: module reset exited with status ${reset_status}; continuing with explicit module loads." >&2
+  fi
+
+  return 0
+}
+
 detect_access_gpu_class() {
   local partition="${1:-}"
   local gpu_name="${2:-}"
@@ -469,7 +485,7 @@ detect_access_gpu_class() {
   echo "unknown"
 }
 
-module reset
+safe_module_reset
 
 if ! command -v conda >/dev/null 2>&1; then
   load_first_available_module anaconda3_gpu pytorch-conda/2.8 || true
