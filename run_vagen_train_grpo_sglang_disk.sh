@@ -40,6 +40,7 @@ MAX_AGENT_NUM_WORKERS=4
 N_GPUS_PER_NODE=1      # overridden by 2gpu/4gpu modes
 GPU_MEMORY_UTIL=0.4    # overridden by 2gpu/4gpu modes (more GPUs → less rollout pressure per GPU)
 FILTER_ARGS=()         # overridden by vision_fix mode
+EXTRA_ARGS=()          # overridden by 4gpu mode (disables torch.compile)
 VAL_BEFORE_TRAIN=True
 TOTAL_TRAINING_STEPS=400
 SAVE_FREQ=20
@@ -409,19 +410,26 @@ case "${MODE}" in
     N_GPUS_PER_NODE=2
     GPU_MEMORY_UTIL=0.5
     VAGEN_SGLANG_INIT_TIMEOUT=1200
+    RAY_NUM_CPUS=16
     ;;
   4gpu)
     # 4 H100s + all vision_fix changes: render_scale=4, format_penalty=-0.1, filter.
     # 256 trajectories/step matches the paper's GRPO setup.
-    # Submit with: sbatch --gres=gpu:h100:4 run_vagen_train_grpo_sglang_disk.sh 4gpu
+    # Submit with: sbatch --time=24:00:00 --gres=gpu:h100:4 run_vagen_train_grpo_sglang_disk.sh 4gpu
+    #
+    # Token budget with render_scale=4 + concat:
+    #   Each image adds ~188 visual tokens. After 3 turns the concat prompt exceeds 4096.
+    #   Raise ROLLOUT_PROMPT to 8192 and MAX_BATCHED_TOKENS to 16384 to prevent SGLang
+    #   from hanging on over-length sequences during initial validation.
+    #   DATA_MAX_PROMPT raised to match so training truncation is consistent.
     EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_4gpu
     TRAIN_FILE=examples/train/sokoban/train_sokoban_vision_fix.yaml
     VAL_FILE=examples/train/sokoban/val_sokoban_vision_fix.yaml
-    DATA_MAX_PROMPT=1024
+    DATA_MAX_PROMPT=8192
     DATA_MAX_RESPONSE=4096
-    ROLLOUT_PROMPT=4096
+    ROLLOUT_PROMPT=8192
     ROLLOUT_RESPONSE=2560
-    MAX_BATCHED_TOKENS=10000
+    MAX_BATCHED_TOKENS=16384
     TRAIN_BATCH_SIZE=32
     PPO_MINI_BATCH_SIZE=32
     ROLLOUT_N=8
@@ -434,11 +442,19 @@ case "${MODE}" in
     ADV_ESTIMATOR=grpo
     ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
     CRITIC_ARGS=(critic.enable=False)
+    EXTRA_ARGS=(
+      actor_rollout_ref.actor.fsdp_config.use_torch_compile=False
+      actor_rollout_ref.ref.use_torch_compile=False
+    )
     HISTORY_ARGS=()
     FILTER_ARGS=(filter.enable=True)
     N_GPUS_PER_NODE=4
     GPU_MEMORY_UTIL=0.6
     VAGEN_SGLANG_INIT_TIMEOUT=1800
+    # 4 colocated GPU actors × 1 CPU each + TaskRunner + Ray overhead > 4.
+    # Ray uses CPU counts as scheduling tokens (not hard limits), so we can
+    # safely advertise more CPUs than physically used.
+    RAY_NUM_CPUS=32
     ;;
   *)
     echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', 'ppo_strict1', 'ppo_strict1_smoke', 'text', 'vision_fmt', 'vision_fix', 'vision_fix_ft', '2gpu', or '4gpu'." >&2
@@ -541,8 +557,9 @@ export FLASHINFER_JIT_WORKER_TIMEOUT=60
 export FLASHINFER_ENABLE_JIT=0
 VAGEN_FORCE_EAGER_ATTN=1
 
-# SGLang server init timeout: raise an informative error instead of hanging indefinitely.
-export VAGEN_SGLANG_INIT_TIMEOUT=600
+# SGLang server init timeout: default 600s for 1-GPU; 2gpu/4gpu modes override this in the case block.
+VAGEN_SGLANG_INIT_TIMEOUT="${VAGEN_SGLANG_INIT_TIMEOUT:-600}"
+export VAGEN_SGLANG_INIT_TIMEOUT
 
 echo "MODE: ${MODE}"
 echo "EXPERIMENT_NAME: ${EXPERIMENT_NAME}"
@@ -745,6 +762,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   trainer.critic_warmup=0 \
   "${CRITIC_ARGS[@]}" \
   "${FILTER_ARGS[@]}" \
+  "${EXTRA_ARGS[@]}" \
   'trainer.logger=[console,wandb]' \
   trainer.log_image.enable=${LOG_IMAGE_ENABLE} \
   trainer.resume_mode=disable \
