@@ -408,6 +408,7 @@ case "${MODE}" in
     FILTER_ARGS=(filter.enable=True)
     N_GPUS_PER_NODE=2
     GPU_MEMORY_UTIL=0.5
+    VAGEN_SGLANG_INIT_TIMEOUT=1200
     ;;
   4gpu)
     # 4 H100s + all vision_fix changes: render_scale=4, format_penalty=-0.1, filter.
@@ -437,6 +438,7 @@ case "${MODE}" in
     FILTER_ARGS=(filter.enable=True)
     N_GPUS_PER_NODE=4
     GPU_MEMORY_UTIL=0.6
+    VAGEN_SGLANG_INIT_TIMEOUT=1800
     ;;
   *)
     echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', 'ppo_strict1', 'ppo_strict1_smoke', 'text', 'vision_fmt', 'vision_fix', 'vision_fix_ft', '2gpu', or '4gpu'." >&2
