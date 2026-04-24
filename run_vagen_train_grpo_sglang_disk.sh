@@ -10,6 +10,7 @@
 #   text:        1 GPU, text rendering — diagnose visual grounding failure
 #   vision_fmt:  1 GPU, vision + format_penalty=-0.1 — fix action-explosion
 #   vision_fix:  1 GPU, vision + render_scale=4 + format_penalty=-0.1 + filter — full visual grounding fix
+#   vision_fix_ft: 1 GPU, same as vision_fix but free_think format (no forced obs verbalization)
 #   2gpu:        2 GPUs, 64 traj/step  — sbatch --gres=gpu:h100:2 ... 2gpu
 #   4gpu:        4 GPUs, 256 traj/step — sbatch --gres=gpu:h100:4 ... 4gpu  (matches paper)
 #SBATCH --job-name=vagen_grpo_sokoban_3b
@@ -332,7 +333,34 @@ case "${MODE}" in
     #   3. filter.enable=True: drop zero-variance GRPO groups (all-fail from hallucination) that contribute no gradient.
     EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_vision_fix
     TRAIN_FILE=examples/train/sokoban/train_sokoban_vision_fix.yaml
-    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision_fix.yaml
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=4096
+    ROLLOUT_PROMPT=4096
+    ROLLOUT_RESPONSE=2560
+    MAX_BATCHED_TOKENS=8192
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=32
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=grpo
+    ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
+    CRITIC_ARGS=(critic.enable=False)
+    HISTORY_ARGS=()
+    FILTER_ARGS=(filter.enable=True)
+    ;;
+  vision_fix_ft)
+    # Same as vision_fix but with free_think format.
+    # Removes the forced <observation> verbalization step so visual grounding failure
+    # no longer corrupts the action reasoning chain. The model can think freely and act.
+    EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_vision_fix_ft
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision_fix_ft.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision_fix_ft.yaml
     DATA_MAX_PROMPT=1024
     DATA_MAX_RESPONSE=4096
     ROLLOUT_PROMPT=4096
@@ -354,11 +382,11 @@ case "${MODE}" in
     FILTER_ARGS=(filter.enable=True)
     ;;
   2gpu)
-    # Fix 3 (partial): 2 H100s — 8x more effective trajectories than 1-GPU concat.
+    # 2 H100s + all vision_fix changes: render_scale=4, format_penalty=-0.1, filter.
     # Submit with: sbatch --gres=gpu:h100:2 run_vagen_train_grpo_sglang_disk.sh 2gpu
     EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_2gpu
-    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision.yaml
-    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision_fix.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision_fix.yaml
     DATA_MAX_PROMPT=1024
     DATA_MAX_RESPONSE=4096
     ROLLOUT_PROMPT=4096
@@ -377,15 +405,17 @@ case "${MODE}" in
     ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
     CRITIC_ARGS=(critic.enable=False)
     HISTORY_ARGS=()
+    FILTER_ARGS=(filter.enable=True)
     N_GPUS_PER_NODE=2
     GPU_MEMORY_UTIL=0.5
     ;;
   4gpu)
-    # Fix 3 (full): 4 H100s — matches paper's exact GRPO setup (256 trajectories/step).
+    # 4 H100s + all vision_fix changes: render_scale=4, format_penalty=-0.1, filter.
+    # 256 trajectories/step matches the paper's GRPO setup.
     # Submit with: sbatch --gres=gpu:h100:4 run_vagen_train_grpo_sglang_disk.sh 4gpu
     EXPERIMENT_NAME=sokoban_grpo_sglang_disk_3b_4gpu
-    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision.yaml
-    VAL_FILE=examples/train/sokoban/val_sokoban_vision.yaml
+    TRAIN_FILE=examples/train/sokoban/train_sokoban_vision_fix.yaml
+    VAL_FILE=examples/train/sokoban/val_sokoban_vision_fix.yaml
     DATA_MAX_PROMPT=1024
     DATA_MAX_RESPONSE=4096
     ROLLOUT_PROMPT=4096
@@ -404,11 +434,12 @@ case "${MODE}" in
     ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
     CRITIC_ARGS=(critic.enable=False)
     HISTORY_ARGS=()
+    FILTER_ARGS=(filter.enable=True)
     N_GPUS_PER_NODE=4
     GPU_MEMORY_UTIL=0.6
     ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', 'ppo_strict1', 'ppo_strict1_smoke', 'text', 'vision_fmt', 'vision_fix', '2gpu', or '4gpu'." >&2
+    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', 'strict1', 'ppo', 'ppo_window1', 'ppo_strict1', 'ppo_strict1_smoke', 'text', 'vision_fmt', 'vision_fix', 'vision_fix_ft', '2gpu', or '4gpu'." >&2
     exit 1
     ;;
 esac
