@@ -74,7 +74,7 @@ VALID_EVAL_SETS = [
 
 # Serialize concurrent Vulkan instance creation: NVIDIA driver is not re-entrant
 # during vkCreateInstance; simultaneous calls corrupt each other's state (SIGABRT).
-_CONTROLLER_INIT_SEM = threading.Semaphore(4)
+_CONTROLLER_INIT_SEM = threading.Semaphore(8)
 
 
 # ---------------------------------------------------------------------------

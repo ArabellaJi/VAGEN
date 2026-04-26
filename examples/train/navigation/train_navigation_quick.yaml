@@ -7,7 +7,7 @@ envs:
     response_length_per_turn: 512
     config:
       base_urls: "http://localhost:8000"
-      timeout: 120
+      timeout: 600
       retries: 3
       eval_set: base
       prompt_format: free_think
