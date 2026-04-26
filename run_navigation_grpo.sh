@@ -59,12 +59,14 @@ cd "${PROJECT_ROOT}"
 case "${CONDITION}" in
   quick)
     # Smoke-test: verify the full pipeline works. 5 training steps, small batch.
+    # n_envs=4 (train) + n_envs=2 (val) = 6 ≤ semaphore(8), fits in one init batch.
+    # TRAIN_BATCH_SIZE must be ≤ n_envs=4.
     EXPERIMENT_NAME=nav_grpo_quick
-    TRAIN_DATA=${SCRIPTDIR}/train_navigation_quick.yaml       # n_envs=30, max_turns=5
-    VAL_DATA=${SCRIPTDIR}/val_navigation_quick.yaml           # n_envs=10
+    TRAIN_DATA=${SCRIPTDIR}/train_navigation_quick.yaml       # n_envs=4, max_turns=5
+    VAL_DATA=${SCRIPTDIR}/val_navigation_quick.yaml           # n_envs=2
     NAV_MAX_ENVS=64
     TRAINING_STEPS=5
-    TRAIN_BATCH_SIZE=8
+    TRAIN_BATCH_SIZE=4
     ROLLOUT_N=1
     DATA_MAX_PROMPT=3000
     DATA_MAX_RESPONSE=5000
@@ -75,6 +77,7 @@ case "${CONDITION}" in
     CONCAT_MULTI_TURN=True
     AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent.yaml
     HISTORY_ARGS=()
+    ROLLOUT_NUM_WORKERS=4
     ;;
   full_memory)
     # Full trajectory in context — baseline for comparison.
@@ -94,6 +97,7 @@ case "${CONDITION}" in
     CONCAT_MULTI_TURN=True
     AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent.yaml
     HISTORY_ARGS=()
+    ROLLOUT_NUM_WORKERS=8
     ;;
   no_memory)
     # Only the current frame — no history at all.
@@ -113,6 +117,7 @@ case "${CONDITION}" in
     CONCAT_MULTI_TURN=False
     AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent_no_concat.yaml
     HISTORY_ARGS=(trainer.history_window_size=0)
+    ROLLOUT_NUM_WORKERS=8
     ;;
   window3)
     # 3-turn sliding window, full-resolution images — memory without compression.
@@ -132,6 +137,7 @@ case "${CONDITION}" in
     CONCAT_MULTI_TURN=False
     AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent_no_concat.yaml
     HISTORY_ARGS=(trainer.history_window_size=3 trainer.thumbnail_scale=1.0)
+    ROLLOUT_NUM_WORKERS=8
     ;;
   thumbnail)
     # Full history, old images compressed to 25% resolution.
@@ -151,6 +157,7 @@ case "${CONDITION}" in
     CONCAT_MULTI_TURN=False
     AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent_no_concat.yaml
     HISTORY_ARGS=(trainer.history_window_size=-1 trainer.thumbnail_scale=0.25)
+    ROLLOUT_NUM_WORKERS=8
     ;;
   window3_thumb)
     # Proposed method: 3 recent turns at full resolution + all older as 25% thumbnails.
@@ -170,6 +177,7 @@ case "${CONDITION}" in
     CONCAT_MULTI_TURN=False
     AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent_no_concat.yaml
     HISTORY_ARGS=(trainer.history_window_size=3 trainer.thumbnail_scale=0.25)
+    ROLLOUT_NUM_WORKERS=8
     ;;
   *)
     echo "ERROR: Unknown CONDITION '${CONDITION}'."
@@ -386,7 +394,7 @@ PYTHONUNBUFFERED=1 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     +actor_rollout_ref.rollout.engine_kwargs.sglang.sampling_backend=pytorch \
     actor_rollout_ref.rollout.multi_turn.enable=True \
-    actor_rollout_ref.rollout.agent.num_workers=8 \
+    actor_rollout_ref.rollout.agent.num_workers="${ROLLOUT_NUM_WORKERS}" \
     actor_rollout_ref.rollout.agent.agent_loop_config_path="${AGENT_LOOP_CFG}" \
     actor_rollout_ref.rollout.disable_log_stats=False \
     \
