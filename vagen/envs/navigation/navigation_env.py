@@ -6,6 +6,7 @@ import asyncio
 import json
 import math
 import os
+import threading
 import time
 from dataclasses import dataclass, fields
 from typing import Any, Dict, List, Optional, Tuple
@@ -71,6 +72,10 @@ VALID_EVAL_SETS = [
     "base_train", "common_sense_train", "long_horizon_train",
 ]
 
+# Serialize concurrent Vulkan instance creation: NVIDIA driver is not re-entrant
+# during vkCreateInstance; simultaneous calls corrupt each other's state (SIGABRT).
+_CONTROLLER_INIT_SEM = threading.Semaphore(4)
+
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -109,13 +114,16 @@ class NavigationEnv(GymImageEnv):
             return
         import ai2thor.controller
         from ai2thor.platform import CloudRendering
-        self._controller = ai2thor.controller.Controller(
-            agentMode="default", gridSize=0.1, visibilityDistance=10,
-            renderDepthImage=False, renderInstanceSegmentation=False,
-            width=self.cfg.resolution, height=self.cfg.resolution,
-            fieldOfView=self.cfg.fov, platform=CloudRendering,
-            gpu_device=self.cfg.gpu_device, server_timeout=300, server_start_timeout=300,
-        )
+        with _CONTROLLER_INIT_SEM:
+            if self._controller is not None:
+                return
+            self._controller = ai2thor.controller.Controller(
+                agentMode="default", gridSize=0.1, visibilityDistance=10,
+                renderDepthImage=False, renderInstanceSegmentation=False,
+                width=self.cfg.resolution, height=self.cfg.resolution,
+                fieldOfView=self.cfg.fov, platform=CloudRendering,
+                gpu_device=self.cfg.gpu_device, server_timeout=300, server_start_timeout=300,
+            )
 
     # --- helpers ---
 
