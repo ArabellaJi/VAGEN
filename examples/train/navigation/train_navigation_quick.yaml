@@ -1,6 +1,6 @@
 envs:
   - name: RemoteEnv
-    n_envs: 30           # Small for quick validation (full experiment: 10000)
+    n_envs: 8            # Small for quick validation (full experiment: 10000)
     data_source: navigation
     seed: [0, 30]        # 30 unique scenes
     max_turns: 5         # Reduced from 10 for speed

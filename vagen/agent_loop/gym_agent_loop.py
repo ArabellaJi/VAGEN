@@ -90,6 +90,9 @@ class AgentData:
         self.env_turns: int = 0
 
 
+        # Track how many images have already been passed to SGLang (for prefix-cache alignment)
+        self.num_images_generated: int = 0
+
         # Cached assistant text to step env
         self.last_assistant_text: Optional[str] = None
 
@@ -322,14 +325,21 @@ class GymAgentLoop(AgentLoopBase):
         sampling_params_for_turn["max_new_tokens"] = max_new_tokens
             
 
+        # Pass only the images not yet consumed by SGLang's prefix cache.
+        # SGLang resets its image counter when processing new (non-cached) suffix tokens,
+        # so passing all accumulated images would cause it to use img[0] (the initial
+        # observation) for every new observation's visual token block.
+        new_image_data = agent_data.image_data[agent_data.num_images_generated:]
+
         with simple_timer("generate_sequences", agent_data.metrics):
             output = await self.server_manager.generate(
                 request_id=agent_data.request_id,
                 prompt_ids=agent_data.prompt_ids,
                 sampling_params=sampling_params_for_turn,
-                image_data=agent_data.image_data,
+                image_data=new_image_data,
             )
 
+        agent_data.num_images_generated = len(agent_data.image_data)
 
         agent_data.response_ids = output.token_ids
         if len(output.token_ids)>agent_data.response_limit:
