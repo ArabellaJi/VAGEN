@@ -4,5 +4,9 @@ env_registry:
   FrozenLake: vagen.envs.frozenlake.frozenlake_env.FrozenLake
   SpatialGym: vagen.envs.spatial_gym.spatial_gym_env.SpatialGym
   PrimitiveSkill: vagen.envs.primitive_skill.primitive_skill_env.PrimitiveSkillEnv
+  # MIKASA-Robo shell game environments
+  ShellGameTouch: vagen.envs.mikasa_robo.shell_game_env.ShellGameEnv
+  ShellGamePush: vagen.envs.mikasa_robo.shell_game_env.ShellGameEnv
+  ShellGamePick: vagen.envs.mikasa_robo.shell_game_env.ShellGameEnv
   # Remote environment client (generic, reusable for any remote env)
   RemoteEnv: vagen.envs_remote.GymImageEnvClient
