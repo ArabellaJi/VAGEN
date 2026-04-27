@@ -131,8 +131,38 @@ case "${MODE}" in
     VAGEN_SGLANG_INIT_TIMEOUT=1200
     RAY_NUM_CPUS=16
     ;;
+  smoke)
+    # Quick end-to-end sanity check: 10 steps, no val, no save.
+    # Verifies the full pipeline (env → rollout → GRPO update) runs without error.
+    EXPERIMENT_NAME=shell_game_grpo_sglang_disk_3b_smoke
+    TRAIN_FILE=examples/train/mikasa_robo/train_shell_game.yaml
+    VAL_FILE=examples/train/mikasa_robo/val_shell_game.yaml
+    DATA_MAX_PROMPT=1024
+    DATA_MAX_RESPONSE=512
+    ROLLOUT_PROMPT=2048
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=4096
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=16
+    ACTOR_USE_KL_LOSS=False
+    ACTOR_KL_LOSS_COEF=0.0
+    AGENT_CONFIG=agent.yaml
+    CONCAT_MULTI_TURN=True
+    LOG_IMAGE_ENABLE=False
+    ADV_ESTIMATOR=grpo
+    ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
+    CRITIC_ARGS=(critic.enable=False)
+    HISTORY_ARGS=()
+    VAL_BEFORE_TRAIN=False
+    TOTAL_TRAINING_STEPS=10
+    SAVE_FREQ=0
+    TEST_FREQ=0
+    LOG_VAL_GENERATIONS=0
+    ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', or '2gpu'." >&2
+    echo "Unknown MODE: ${MODE}. Use 'concat', 'window1', '2gpu', or 'smoke'." >&2
     exit 1
     ;;
 esac
