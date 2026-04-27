@@ -1,0 +1,12 @@
+envs:
+  - name: ShellGameTouch
+    n_envs: 10000
+    data_source: shell_game_touch
+    seed: [1, 10000, 1]
+    max_turns: 2
+    response_length_per_turn: 512
+    config:
+      env_id: ShellGameTouch-v0
+      obs_mode: state
+      format_reward: 0.02
+      success_reward: 1.0
