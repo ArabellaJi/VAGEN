@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Validate the graphics stack needed by VAGEN Navigation on a Vast.ai instance.
+#
+# Run from inside the Vast container after installing VAGEN dependencies:
+#   bash scripts/check_navigation_vast.sh
+#
+# Optional:
+#   NAV_GPU=1 bash scripts/check_navigation_vast.sh
+#   USE_XVFB=1 bash scripts/check_navigation_vast.sh
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+NAV_GPU="${NAV_GPU:-0}"
+
+cd "${PROJECT_ROOT}"
+export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
+
+if [[ -z "${VK_ICD_FILENAMES:-}" ]]; then
+  shopt -s nullglob
+  icd_files=(/usr/share/vulkan/icd.d/nvidia_icd*.json /etc/vulkan/icd.d/nvidia_icd*.json)
+  shopt -u nullglob
+  if (( ${#icd_files[@]} > 0 )); then
+    export VK_ICD_FILENAMES="${icd_files[0]}"
+  fi
+fi
+
+XVFB_PID=""
+cleanup() {
+  if [[ -n "${XVFB_PID}" ]]; then
+    kill "${XVFB_PID}" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+if [[ "${USE_XVFB:-0}" == "1" ]]; then
+  if ! command -v Xvfb >/dev/null 2>&1; then
+    echo "ERROR: USE_XVFB=1 was set, but Xvfb is not installed." >&2
+    exit 1
+  fi
+  export DISPLAY="${DISPLAY:-:99}"
+  Xvfb "${DISPLAY}" -screen 0 1280x1024x24 -nolisten tcp >/tmp/vagen-xvfb.log 2>&1 &
+  XVFB_PID=$!
+  sleep 1
+  echo "Started Xvfb on DISPLAY=${DISPLAY} (pid=${XVFB_PID})."
+fi
+
+echo "=== GPU ==="
+nvidia-smi
+
+echo
+echo "=== Vulkan ICD ==="
+echo "VK_ICD_FILENAMES=${VK_ICD_FILENAMES:-unset}"
+if [[ -n "${VK_ICD_FILENAMES:-}" && ! -f "${VK_ICD_FILENAMES}" ]]; then
+  echo "ERROR: VK_ICD_FILENAMES points to a missing file." >&2
+  exit 1
+fi
+
+if command -v vulkaninfo >/dev/null 2>&1; then
+  vulkaninfo --summary | sed -n '1,120p'
+else
+  echo "WARNING: vulkaninfo is not installed. Install vulkan-tools for diagnostics."
+fi
+
+echo
+echo "=== Python imports ==="
+python - <<'PY'
+import importlib.util
+missing = [name for name in ("ai2thor", "PIL", "numpy") if importlib.util.find_spec(name) is None]
+if missing:
+    raise SystemExit(f"Missing Python packages: {missing}")
+print("Imports OK")
+PY
+
+echo
+echo "=== AI2-THOR CloudRendering reset ==="
+python - <<'PY'
+import os
+import pathlib
+import traceback
+
+from ai2thor.controller import Controller
+from ai2thor.platform import CloudRendering
+
+gpu = int(os.environ.get("NAV_GPU", "0"))
+controller = None
+try:
+    controller = Controller(
+        agentMode="default",
+        gridSize=0.1,
+        visibilityDistance=10,
+        renderDepthImage=False,
+        renderInstanceSegmentation=False,
+        width=255,
+        height=255,
+        fieldOfView=100,
+        platform=CloudRendering,
+        gpu_device=gpu,
+        server_timeout=300,
+        server_start_timeout=300,
+    )
+    controller.reset(scene="FloorPlan1")
+    frame = controller.last_event.frame
+    print(f"AI2-THOR OK: frame_shape={frame.shape}, scene=FloorPlan1, gpu={gpu}")
+except Exception:
+    traceback.print_exc()
+    player_logs = sorted(
+        pathlib.Path.home().glob(".config/unity3d/Allen Institute for Artificial Intelligence/AI2-THOR/Player.log")
+    )
+    if player_logs:
+        print(f"\nUnity Player.log: {player_logs[-1]}")
+    raise
+finally:
+    if controller is not None:
+        controller.stop()
+PY
+
+echo
+echo "Navigation graphics smoke test passed."
