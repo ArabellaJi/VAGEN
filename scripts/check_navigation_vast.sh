@@ -13,6 +13,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 NAV_GPU="${NAV_GPU:-0}"
+AI2THOR_CACHE_DIR="${AI2THOR_CACHE_DIR:-${HOME}/.ai2thor}"
 
 cd "${PROJECT_ROOT}"
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
@@ -64,6 +65,16 @@ else
 fi
 
 echo
+echo "=== AI2-THOR cache ==="
+echo "Expected cache directory: ${AI2THOR_CACHE_DIR}"
+if [[ -d "${AI2THOR_CACHE_DIR}" ]]; then
+  du -sh "${AI2THOR_CACHE_DIR}" 2>/dev/null || true
+  find "${AI2THOR_CACHE_DIR}" -maxdepth 3 -type f \( -name 'thor-CloudRendering*.zip' -o -name 'AI2-THOR.x86_64' \) 2>/dev/null | sed -n '1,20p'
+else
+  echo "Cache directory does not exist yet. First Controller() call will download the Unity build."
+fi
+
+echo
 echo "=== Python imports ==="
 python - <<'PY'
 import importlib.util
@@ -78,6 +89,7 @@ echo "=== AI2-THOR CloudRendering reset ==="
 python - <<'PY'
 import os
 import pathlib
+import time
 import traceback
 
 from ai2thor.controller import Controller
@@ -86,6 +98,8 @@ from ai2thor.platform import CloudRendering
 gpu = int(os.environ.get("NAV_GPU", "0"))
 controller = None
 try:
+    print("Creating Controller. If a thor-CloudRendering zip appears here, this is first-run asset download, not reset latency.")
+    t0 = time.perf_counter()
     controller = Controller(
         agentMode="default",
         gridSize=0.1,
@@ -100,9 +114,14 @@ try:
         server_timeout=300,
         server_start_timeout=300,
     )
+    t_controller = time.perf_counter() - t0
+    print(f"Controller ready in {t_controller:.1f}s")
+
+    t1 = time.perf_counter()
     controller.reset(scene="FloorPlan1")
+    t_reset = time.perf_counter() - t1
     frame = controller.last_event.frame
-    print(f"AI2-THOR OK: frame_shape={frame.shape}, scene=FloorPlan1, gpu={gpu}")
+    print(f"AI2-THOR OK: frame_shape={frame.shape}, scene=FloorPlan1, gpu={gpu}, reset={t_reset:.2f}s")
 except Exception:
     traceback.print_exc()
     player_logs = sorted(
