@@ -19,7 +19,13 @@ import traceback
 import importlib
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-from .gym_agent_loop import convert_obs_to_content, extract_success, _flatten_text_only_content, _normalize_images
+from .gym_agent_loop import (
+    convert_obs_to_content,
+    extract_success,
+    _flatten_text_only_content,
+    _normalize_images,
+    _processor_output_for_sglang,
+)
 
 class AgentState(Enum):
     PENDING = "pending"
@@ -60,6 +66,7 @@ class AgentData:
         self.history_turns: List[Dict[str, Any]] = []
         # Built by _handle_pending_state, used by _handle_generating_state
         self.context_images: List[Image.Image] = []
+        self.pending_sglang_image_data: List[Any] = []
 
         self.metrics = metrics
         self.request_id = request_id
@@ -236,7 +243,10 @@ class GymAgentLoop(AgentLoopBase):
                 ),
             )
             model_inputs = self.processor(text=[raw_prompt], images=image_data or None, return_tensors="pt")
-            agent_data.turn_prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            agent_data.pending_sglang_image_data = (
+                [_processor_output_for_sglang(model_inputs)] if image_data else []
+            )
+            agent_data.turn_prompt_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
             if image_data:
                 raise ValueError("Environment returned images but `processor` is None.")
@@ -265,17 +275,15 @@ class GymAgentLoop(AgentLoopBase):
         max_new_tokens=sampling_params_for_turn.get("max_new_tokens", None) or agent_data.response_limit
         max_new_tokens = min(max_new_tokens, agent_data.response_limit)
         sampling_params_for_turn["max_new_tokens"] = max_new_tokens
-        # Use the windowed image list built by _handle_pending_state
-        image_data = agent_data.context_images
-
         with simple_timer("generate_sequences", agent_data.metrics):
             output = await self.server_manager.generate(
                 request_id = agent_data.request_id,
                 prompt_ids = agent_data.turn_prompt_ids,
                 sampling_params = sampling_params_for_turn,
-                image_data = image_data,
+                image_data = agent_data.pending_sglang_image_data,
             )
 
+        agent_data.pending_sglang_image_data = []
 
         agent_data.turn_response_ids = output.token_ids
         agent_data.turn_response_mask = [1] * len(output.token_ids)

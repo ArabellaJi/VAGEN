@@ -92,6 +92,7 @@ class AgentData:
 
         # Track how many images have already been passed to SGLang (for prefix-cache alignment)
         self.num_images_generated: int = 0
+        self.pending_sglang_image_data: List[Any] = []
 
         # Cached assistant text to step env
         self.last_assistant_text: Optional[str] = None
@@ -107,6 +108,14 @@ def _normalize_images(imgs: List[Image.Image]) -> List[Image.Image]:
             continue
         out.append(im.convert("RGB") if isinstance(im, Image.Image) else im)
     return out
+
+def _processor_output_for_sglang(model_inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Package HF processor output for SGLang token-in VLM generation."""
+    item: Dict[str, Any] = {}
+    for key, value in dict(model_inputs).items():
+        item[key] = value.detach().cpu() if hasattr(value, "detach") else value
+    item["format"] = "processor_output"
+    return item
 
 def extract_success(info: Dict[str, Any], success_keys: str = "success|is_success") -> bool:
     """Extract success flag from env info dict."""
@@ -294,7 +303,10 @@ class GymAgentLoop(AgentLoopBase):
                 ),
             )
             model_inputs = self.processor(text=[raw_prompt], images=agent_data.image_data or None, return_tensors="pt")
-            agent_data.prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            agent_data.pending_sglang_image_data = (
+                [_processor_output_for_sglang(model_inputs)] if agent_data.image_data else []
+            )
+            agent_data.prompt_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
             if agent_data.image_data:
                 raise ValueError("Environment returned images but `processor` is None.")
@@ -325,21 +337,16 @@ class GymAgentLoop(AgentLoopBase):
         sampling_params_for_turn["max_new_tokens"] = max_new_tokens
             
 
-        # Pass only the images not yet consumed by SGLang's prefix cache.
-        # SGLang resets its image counter when processing new (non-cached) suffix tokens,
-        # so passing all accumulated images would cause it to use img[0] (the initial
-        # observation) for every new observation's visual token block.
-        new_image_data = agent_data.image_data[agent_data.num_images_generated:]
-
         with simple_timer("generate_sequences", agent_data.metrics):
             output = await self.server_manager.generate(
                 request_id=agent_data.request_id,
                 prompt_ids=agent_data.prompt_ids,
                 sampling_params=sampling_params_for_turn,
-                image_data=new_image_data,
+                image_data=agent_data.pending_sglang_image_data,
             )
 
         agent_data.num_images_generated = len(agent_data.image_data)
+        agent_data.pending_sglang_image_data = []
 
         agent_data.response_ids = output.token_ids
         if len(output.token_ids)>agent_data.response_limit:
@@ -412,7 +419,10 @@ class GymAgentLoop(AgentLoopBase):
                 ),
             )
             model_inputs = self.processor(text=[raw_user_suffix], images=new_images or None, return_tensors="pt")
-            response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            agent_data.pending_sglang_image_data = (
+                [_processor_output_for_sglang(model_inputs)] if new_images else []
+            )
+            response_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
             if new_images:
                 raise ValueError("Environment returned images but `processor` is None.")
