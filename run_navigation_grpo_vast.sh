@@ -251,9 +251,17 @@ fi
 
 JOB_TMP="${JOB_TMP:-${DEFAULT_TMP_ROOT}/vagen_nav_${USER:-root}_$$}"
 export TMPDIR="${TMPDIR:-${JOB_TMP}/t}"
+export TMP="${TMP:-${TMPDIR}}"
+export TEMP="${TEMP:-${TMPDIR}}"
 export RAY_TMPDIR="${RAY_TMPDIR:-${JOB_TMP}/r}"
 SYNC_ROOT="${SYNC_ROOT:-${JOB_TMP}/sglang_sync}"
 mkdir -p "${TMPDIR}" "${RAY_TMPDIR}" "${SYNC_ROOT}"
+
+if ! (test -d "${TMPDIR}" && test -w "${TMPDIR}" && : > "${TMPDIR}/.vagen_write_test" && rm -f "${TMPDIR}/.vagen_write_test"); then
+  echo "ERROR: TMPDIR is not writable: ${TMPDIR}" >&2
+  echo "Check disk space and permissions with: df -h /workspace /tmp && ls -ld '${TMPDIR}'" >&2
+  exit 1
+fi
 
 VAGEN_SGLANG_WEIGHT_SYNC_METHOD="${VAGEN_SGLANG_WEIGHT_SYNC_METHOD:-disk}"
 VAGEN_SGLANG_WEIGHT_SYNC_DIR="${VAGEN_SGLANG_WEIGHT_SYNC_DIR:-${SYNC_ROOT}}"
@@ -300,6 +308,8 @@ echo "VK_ICD_FILENAMES:   ${VK_ICD_FILENAMES:-unset}"
 echo "HF_HOME:            ${HF_HOME}"
 echo "HF_HUB_DISABLE_XET: ${HF_HUB_DISABLE_XET}"
 echo "TMPDIR:             ${TMPDIR}"
+echo "TMP:                ${TMP}"
+echo "TEMP:               ${TEMP}"
 echo "RAY_TMPDIR:         ${RAY_TMPDIR}"
 echo "USE_XVFB:           ${USE_XVFB:-0}"
 echo "CONCAT_MULTI_TURN:  ${CONCAT_MULTI_TURN}"
@@ -309,6 +319,18 @@ nvidia-smi || true
 echo
 echo "Disk space:"
 df -h "${RUN_ROOT}" "${TMPDIR}" "${HF_HOME}" /tmp 2>/dev/null | awk 'NR == 1 || !seen[$6]++'
+python - <<'PY'
+import os
+import tempfile
+
+print("Python tempdir:", tempfile.gettempdir())
+with tempfile.NamedTemporaryFile(prefix="vagen_tmp_check_", delete=True) as f:
+    f.write(b"ok")
+    f.flush()
+    print("Python temp write OK:", f.name)
+for name in ("TMPDIR", "TMP", "TEMP"):
+    print(f"{name}={os.environ.get(name)}")
+PY
 if command -v vulkaninfo >/dev/null 2>&1; then
   vulkaninfo --summary | sed -n '1,80p' || true
 fi
@@ -475,6 +497,8 @@ PYTHONUNBUFFERED=1 \
     "+ray_kwargs.ray_init.runtime_env.env_vars.LD_LIBRARY_PATH='${LD_LIBRARY_PATH:-}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_VISIBLE_DEVICES='${TRAIN_GPU}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.TMPDIR='${TMPDIR}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.TMP='${TMP}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.TEMP='${TEMP}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HOME='${HF_HOME}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.HUGGINGFACE_HUB_CACHE='${HUGGINGFACE_HUB_CACHE}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HUB_DISABLE_XET='${HF_HUB_DISABLE_XET}'" \
