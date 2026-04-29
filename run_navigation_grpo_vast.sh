@@ -23,7 +23,7 @@ else
 fi
 RUN_ROOT="${RUN_ROOT:-${DEFAULT_RUN_ROOT}}"
 HF_CACHE="${HF_CACHE:-${RUN_ROOT}/hf_cache}"
-DEFAULT_TMP_ROOT="${RUN_ROOT}/tmp"
+DEFAULT_TMP_ROOT="${VAGEN_TMP_ROOT:-/tmp}"
 SCRIPTDIR="${PROJECT_ROOT}/examples/train/navigation"
 
 CONDITION="${CONDITION:-quick}"
@@ -249,7 +249,7 @@ if [[ "${USE_XVFB:-0}" == "1" ]]; then
   sleep 1
 fi
 
-JOB_TMP="${JOB_TMP:-${DEFAULT_TMP_ROOT}/vagen_nav_${USER:-root}_$$}"
+JOB_TMP="${JOB_TMP:-${DEFAULT_TMP_ROOT}/vg_$$}"
 export TMPDIR="${TMPDIR:-${JOB_TMP}/t}"
 export TMP="${TMP:-${TMPDIR}}"
 export TEMP="${TEMP:-${TMPDIR}}"
