@@ -23,6 +23,7 @@ else
 fi
 RUN_ROOT="${RUN_ROOT:-${DEFAULT_RUN_ROOT}}"
 HF_CACHE="${HF_CACHE:-${RUN_ROOT}/hf_cache}"
+DEFAULT_TMP_ROOT="${RUN_ROOT}/tmp"
 SCRIPTDIR="${PROJECT_ROOT}/examples/train/navigation"
 
 CONDITION="${CONDITION:-quick}"
@@ -210,6 +211,9 @@ export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:False}"
 export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0;9.0}"
 export HF_HOME="${HF_HOME:-${HF_CACHE}}"
+export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-${HF_HOME}/hub}"
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${RUN_ROOT}/xdg_cache}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
 export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
@@ -222,7 +226,7 @@ export FLASHINFER_ENABLE_JIT="${FLASHINFER_ENABLE_JIT:-0}"
 export FLASHINFER_JIT_WORKER_TIMEOUT="${FLASHINFER_JIT_WORKER_TIMEOUT:-60}"
 export VAGEN_SGLANG_INIT_TIMEOUT="${VAGEN_SGLANG_INIT_TIMEOUT:-600}"
 export WANDB_DIR="${WANDB_DIR:-${RUN_ROOT}/wandb}"
-mkdir -p "${WANDB_DIR}"
+mkdir -p "${HF_HOME}" "${HUGGINGFACE_HUB_CACHE}" "${XDG_CACHE_HOME}" "${WANDB_DIR}"
 
 if [[ -z "${VK_ICD_FILENAMES:-}" ]]; then
   shopt -s nullglob
@@ -245,7 +249,7 @@ if [[ "${USE_XVFB:-0}" == "1" ]]; then
   sleep 1
 fi
 
-JOB_TMP="${JOB_TMP:-/tmp/vagen_nav_${USER:-root}_$$}"
+JOB_TMP="${JOB_TMP:-${DEFAULT_TMP_ROOT}/vagen_nav_${USER:-root}_$$}"
 export TMPDIR="${TMPDIR:-${JOB_TMP}/t}"
 export RAY_TMPDIR="${RAY_TMPDIR:-${JOB_TMP}/r}"
 SYNC_ROOT="${SYNC_ROOT:-${JOB_TMP}/sglang_sync}"
@@ -293,11 +297,18 @@ echo "NAV_GPU:            ${NAV_GPU}"
 echo "TRAIN_GPU:          ${TRAIN_GPU}"
 echo "CUDA_HOME:          ${CUDA_HOME:-unset}"
 echo "VK_ICD_FILENAMES:   ${VK_ICD_FILENAMES:-unset}"
+echo "HF_HOME:            ${HF_HOME}"
+echo "HF_HUB_DISABLE_XET: ${HF_HUB_DISABLE_XET}"
+echo "TMPDIR:             ${TMPDIR}"
+echo "RAY_TMPDIR:         ${RAY_TMPDIR}"
 echo "USE_XVFB:           ${USE_XVFB:-0}"
 echo "CONCAT_MULTI_TURN:  ${CONCAT_MULTI_TURN}"
 echo "HISTORY_ARGS:       ${HISTORY_ARGS[*]:-none}"
 echo "========================================================"
 nvidia-smi || true
+echo
+echo "Disk space:"
+df -h "${RUN_ROOT}" "${TMPDIR}" "${HF_HOME}" /tmp 2>/dev/null | awk 'NR == 1 || !seen[$6]++'
 if command -v vulkaninfo >/dev/null 2>&1; then
   vulkaninfo --summary | sed -n '1,80p' || true
 fi
@@ -463,6 +474,11 @@ PYTHONUNBUFFERED=1 \
     "+ray_kwargs.ray_init.runtime_env.env_vars.PATH='${PATH}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.LD_LIBRARY_PATH='${LD_LIBRARY_PATH:-}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_VISIBLE_DEVICES='${TRAIN_GPU}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.TMPDIR='${TMPDIR}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HOME='${HF_HOME}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.HUGGINGFACE_HUB_CACHE='${HUGGINGFACE_HUB_CACHE}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HUB_DISABLE_XET='${HF_HUB_DISABLE_XET}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.XDG_CACHE_HOME='${XDG_CACHE_HOME}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF='${PYTORCH_CUDA_ALLOC_CONF}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.TORCH_CUDA_ARCH_LIST='${TORCH_CUDA_ARCH_LIST}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.PYTHONPATH='${PYTHONPATH}'" \
