@@ -225,6 +225,7 @@ export TORCHDYNAMO_DISABLE="${TORCHDYNAMO_DISABLE:-1}"
 export FLASHINFER_ENABLE_JIT="${FLASHINFER_ENABLE_JIT:-0}"
 export FLASHINFER_JIT_WORKER_TIMEOUT="${FLASHINFER_JIT_WORKER_TIMEOUT:-60}"
 export VAGEN_SGLANG_INIT_TIMEOUT="${VAGEN_SGLANG_INIT_TIMEOUT:-600}"
+TRAINER_LOGGER="${TRAINER_LOGGER:-[console,wandb]}"
 export WANDB_DIR="${WANDB_DIR:-${RUN_ROOT}/wandb}"
 mkdir -p "${HF_HOME}" "${HUGGINGFACE_HUB_CACHE}" "${XDG_CACHE_HOME}" "${WANDB_DIR}"
 
@@ -311,6 +312,7 @@ echo "TMPDIR:             ${TMPDIR}"
 echo "TMP:                ${TMP}"
 echo "TEMP:               ${TEMP}"
 echo "RAY_TMPDIR:         ${RAY_TMPDIR}"
+echo "TRAINER_LOGGER:     ${TRAINER_LOGGER}"
 echo "USE_XVFB:           ${USE_XVFB:-0}"
 echo "CONCAT_MULTI_TURN:  ${CONCAT_MULTI_TURN}"
 echo "HISTORY_ARGS:       ${HISTORY_ARGS[*]:-none}"
@@ -476,7 +478,7 @@ PYTHONUNBUFFERED=1 \
     critic.enable=False \
     trainer.val_before_train=True \
     trainer.resume_mode=disable \
-    'trainer.logger=[console,wandb]' \
+    "trainer.logger=${TRAINER_LOGGER}" \
     'trainer.log_image.enable=True' \
     trainer.total_training_steps="${TRAINING_STEPS}" \
     trainer.save_freq=20 \
@@ -503,6 +505,9 @@ PYTHONUNBUFFERED=1 \
     "+ray_kwargs.ray_init.runtime_env.env_vars.HUGGINGFACE_HUB_CACHE='${HUGGINGFACE_HUB_CACHE}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HUB_DISABLE_XET='${HF_HUB_DISABLE_XET}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.XDG_CACHE_HOME='${XDG_CACHE_HOME}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.WANDB_DIR='${WANDB_DIR}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.WANDB_MODE='${WANDB_MODE:-}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.WANDB_API_KEY='${WANDB_API_KEY:-}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF='${PYTORCH_CUDA_ALLOC_CONF}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.TORCH_CUDA_ARCH_LIST='${TORCH_CUDA_ARCH_LIST}'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.PYTHONPATH='${PYTHONPATH}'" \
