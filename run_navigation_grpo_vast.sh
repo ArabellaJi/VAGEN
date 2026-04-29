@@ -269,6 +269,39 @@ VAGEN_SGLANG_WEIGHT_SYNC_DIR="${VAGEN_SGLANG_WEIGHT_SYNC_DIR:-${SYNC_ROOT}}"
 VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT="${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT:-auto}"
 VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE="${VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE:-true}"
 
+RAY_RUNTIME_ENV_ARGS=(
+  "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_HOME='${CUDA_HOME}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_PATH='${CUDA_PATH:-${CUDA_HOME}}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.PATH='${PATH}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.LD_LIBRARY_PATH='${LD_LIBRARY_PATH:-}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_VISIBLE_DEVICES='${TRAIN_GPU}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.TMPDIR='${TMPDIR}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.TMP='${TMP}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.TEMP='${TEMP}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HOME='${HF_HOME}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.HUGGINGFACE_HUB_CACHE='${HUGGINGFACE_HUB_CACHE}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HUB_DISABLE_XET='${HF_HUB_DISABLE_XET}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.XDG_CACHE_HOME='${XDG_CACHE_HOME}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.WANDB_DIR='${WANDB_DIR}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF='${PYTORCH_CUDA_ALLOC_CONF}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.TORCH_CUDA_ARCH_LIST='${TORCH_CUDA_ARCH_LIST}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.PYTHONPATH='${PYTHONPATH}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_METHOD='${VAGEN_SGLANG_WEIGHT_SYNC_METHOD}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_DIR='${VAGEN_SGLANG_WEIGHT_SYNC_DIR}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT='${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE='${VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.TORCHDYNAMO_DISABLE='${TORCHDYNAMO_DISABLE}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_ENABLE_JIT='${FLASHINFER_ENABLE_JIT}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_JIT_WORKER_TIMEOUT='${FLASHINFER_JIT_WORKER_TIMEOUT}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_INIT_TIMEOUT='${VAGEN_SGLANG_INIT_TIMEOUT}'"
+)
+if [[ -n "${WANDB_MODE:-}" ]]; then
+  RAY_RUNTIME_ENV_ARGS+=("+ray_kwargs.ray_init.runtime_env.env_vars.WANDB_MODE='${WANDB_MODE}'")
+fi
+if [[ -n "${WANDB_API_KEY:-}" ]]; then
+  RAY_RUNTIME_ENV_ARGS+=("+ray_kwargs.ray_init.runtime_env.env_vars.WANDB_API_KEY='${WANDB_API_KEY}'")
+fi
+
 RAY_NUM_CPUS="${RAY_NUM_CPUS:-16}"
 RAY_LOG_ARCHIVE_DIR="${RAY_LOG_ARCHIVE_DIR:-${PROJECT_ROOT}/logs/ray/vast_${CONDITION}_$(date +%Y%m%d_%H%M%S)}"
 
@@ -493,32 +526,7 @@ PYTHONUNBUFFERED=1 \
     +ray_kwargs.ray_init.num_cpus="${RAY_NUM_CPUS}" \
     +ray_kwargs.ray_init.object_store_memory=4294967296 \
     "+ray_kwargs.ray_init._temp_dir='${RAY_TMPDIR}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_HOME='${CUDA_HOME}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_PATH='${CUDA_PATH:-${CUDA_HOME}}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.PATH='${PATH}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.LD_LIBRARY_PATH='${LD_LIBRARY_PATH:-}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_VISIBLE_DEVICES='${TRAIN_GPU}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.TMPDIR='${TMPDIR}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.TMP='${TMP}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.TEMP='${TEMP}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HOME='${HF_HOME}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.HUGGINGFACE_HUB_CACHE='${HUGGINGFACE_HUB_CACHE}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.HF_HUB_DISABLE_XET='${HF_HUB_DISABLE_XET}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.XDG_CACHE_HOME='${XDG_CACHE_HOME}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.WANDB_DIR='${WANDB_DIR}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.WANDB_MODE='${WANDB_MODE:-}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.WANDB_API_KEY='${WANDB_API_KEY:-}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF='${PYTORCH_CUDA_ALLOC_CONF}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.TORCH_CUDA_ARCH_LIST='${TORCH_CUDA_ARCH_LIST}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.PYTHONPATH='${PYTHONPATH}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_METHOD='${VAGEN_SGLANG_WEIGHT_SYNC_METHOD}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_DIR='${VAGEN_SGLANG_WEIGHT_SYNC_DIR}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT='${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE='${VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.TORCHDYNAMO_DISABLE='${TORCHDYNAMO_DISABLE}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_ENABLE_JIT='${FLASHINFER_ENABLE_JIT}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_JIT_WORKER_TIMEOUT='${FLASHINFER_JIT_WORKER_TIMEOUT}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_INIT_TIMEOUT='${VAGEN_SGLANG_INIT_TIMEOUT}'" \
+    "${RAY_RUNTIME_ENV_ARGS[@]}" \
     2>&1 | tee "${EXPERIMENT_DIR}/train.log"
 TRAIN_EXIT=${PIPESTATUS[0]}
 set -e
