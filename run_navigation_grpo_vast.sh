@@ -43,6 +43,23 @@ if [[ -z "${TRAIN_GPU:-}" ]]; then
   fi
 fi
 
+validate_gpu_index() {
+  local label="$1"
+  local value="$2"
+  if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: ${label}=${value} is not a numeric GPU index."
+    exit 1
+  fi
+  if [[ "${GPU_COUNT_DETECTED}" -gt 0 && "${value}" -ge "${GPU_COUNT_DETECTED}" ]]; then
+    echo "ERROR: ${label}=${value}, but nvidia-smi reports only ${GPU_COUNT_DETECTED} GPU(s), indexed 0..$((GPU_COUNT_DETECTED - 1))."
+    echo "For a single-GPU smoke test use: ALLOW_SINGLE_GPU_TRAIN=1 NAV_GPU=0 TRAIN_GPU=0 CONDITION=quick bash run_navigation_grpo_vast.sh"
+    exit 1
+  fi
+}
+
+validate_gpu_index "NAV_GPU" "${NAV_GPU}"
+validate_gpu_index "TRAIN_GPU" "${TRAIN_GPU}"
+
 if [[ "${NAV_GPU}" == "${TRAIN_GPU}" && "${ALLOW_SINGLE_GPU_TRAIN:-0}" != "1" ]]; then
   echo "ERROR: NAV_GPU and TRAIN_GPU are both ${NAV_GPU}."
   echo "Use a 2-GPU instance for training, or set ALLOW_SINGLE_GPU_TRAIN=1 for a small forced smoke test."
@@ -292,6 +309,21 @@ print("Python:", sys.executable)
 print("CUDA available:", torch.cuda.is_available(), "| device count:", torch.cuda.device_count())
 for i in range(torch.cuda.device_count()):
     print(f"  GPU {i}:", torch.cuda.get_device_name(i))
+PY
+
+python - <<'PY'
+import sys
+import transformers
+
+required = ["AutoModelForVision2Seq", "Qwen2_5_VLForConditionalGeneration"]
+missing = [name for name in required if not hasattr(transformers, name)]
+print("Transformers:", transformers.__version__)
+if missing:
+    raise SystemExit(
+        "ERROR: transformers is missing "
+        + ", ".join(missing)
+        + ". Install a Qwen2.5-VL-capable version, e.g. `pip install -U transformers==4.57.1`."
+    )
 PY
 
 if [[ "${PREDOWNLOAD_SCENES:-0}" == "1" ]]; then

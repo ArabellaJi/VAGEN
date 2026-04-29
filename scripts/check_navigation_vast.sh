@@ -68,7 +68,10 @@ echo
 echo "=== AI2-THOR cache ==="
 echo "Expected cache directory: ${AI2THOR_CACHE_DIR}"
 if [[ -d "${AI2THOR_CACHE_DIR}" ]]; then
-  du -sh "${AI2THOR_CACHE_DIR}" 2>/dev/null || true
+  if [[ -L "${AI2THOR_CACHE_DIR}" ]]; then
+    echo "Symlink target: $(readlink -f "${AI2THOR_CACHE_DIR}")"
+  fi
+  du -shL "${AI2THOR_CACHE_DIR}" 2>/dev/null || du -sh "${AI2THOR_CACHE_DIR}" 2>/dev/null || true
   find "${AI2THOR_CACHE_DIR}" -maxdepth 3 -type f \( -name 'thor-CloudRendering*.zip' -o -name 'AI2-THOR.x86_64' \) 2>/dev/null | sed -n '1,20p'
 else
   echo "Cache directory does not exist yet. First Controller() call will download the Unity build."
