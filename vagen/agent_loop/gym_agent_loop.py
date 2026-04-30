@@ -110,6 +110,84 @@ def _tokenize_raw_prompt_for_sglang(tokenizer, raw_prompt: str) -> List[int]:
     """Tokenize a chat-template string without expanding image placeholders."""
     return tokenizer(raw_prompt, add_special_tokens=False)["input_ids"]
 
+def _token_id(tokenizer, token: str) -> Optional[int]:
+    token_id = tokenizer.convert_tokens_to_ids(token)
+    return token_id if isinstance(token_id, int) and token_id >= 0 else None
+
+def _find_image_spans(tokenizer, token_ids: List[int]) -> List[tuple[int, int]]:
+    """Return half-open spans covering each expanded Qwen image token block."""
+    image_id = _token_id(tokenizer, "<|image_pad|>")
+    if image_id is None:
+        return []
+
+    vision_start_id = _token_id(tokenizer, "<|vision_start|>")
+    vision_end_id = _token_id(tokenizer, "<|vision_end|>")
+    spans: List[tuple[int, int]] = []
+    i = 0
+    n = len(token_ids)
+    while i < n:
+        if token_ids[i] != image_id:
+            i += 1
+            continue
+
+        pad_start = i
+        while i < n and token_ids[i] == image_id:
+            i += 1
+        pad_end = i
+
+        span_start = pad_start
+        if vision_start_id is not None and pad_start > 0 and token_ids[pad_start - 1] == vision_start_id:
+            span_start = pad_start - 1
+
+        span_end = pad_end
+        if vision_end_id is not None and pad_end < n and token_ids[pad_end] == vision_end_id:
+            span_end = pad_end + 1
+
+        spans.append((span_start, span_end))
+    return spans
+
+def _trim_multimodal_sequence(
+    tokenizer,
+    prompt_ids: List[int],
+    response_ids: List[int],
+    response_mask: List[int],
+    images: List[Image.Image],
+    prompt_length: int,
+    response_length: int,
+    response_logprobs: Optional[List[float]] = None,
+):
+    """Trim token windows and keep only images whose token spans remain present."""
+    full_ids = list(prompt_ids) + list(response_ids)
+    prompt_end = len(prompt_ids)
+    window_start = max(0, prompt_end - prompt_length)
+    window_end = prompt_end + min(len(response_ids), response_length)
+    spans = _find_image_spans(tokenizer, full_ids)
+
+    for span_start, span_end in spans:
+        if span_start < window_start < span_end:
+            window_start = span_end
+        if span_start < window_end < span_end:
+            window_end = span_start
+            break
+
+    kept_images: List[Image.Image] = []
+    for idx, (span_start, span_end) in enumerate(spans):
+        if idx >= len(images):
+            break
+        if window_start <= span_start and span_end <= window_end:
+            kept_images.append(images[idx])
+
+    if images and len(spans) != len(images):
+        logger.warning("Image span/image count mismatch before trimming: spans=%d images=%d", len(spans), len(images))
+
+    trimmed_prompt_ids = full_ids[window_start:prompt_end]
+    response_keep = max(0, window_end - prompt_end)
+    trimmed_response_ids = response_ids[:response_keep]
+    trimmed_response_mask = response_mask[:response_keep]
+    trimmed_response_logprobs = response_logprobs[:response_keep] if response_logprobs is not None else None
+
+    return trimmed_prompt_ids, trimmed_response_ids, trimmed_response_mask, kept_images, trimmed_response_logprobs
+
 def extract_success(info: Dict[str, Any], success_keys: str = "success|is_success") -> bool:
     """Extract success flag from env info dict."""
     for key in success_keys.split("|"):
@@ -259,7 +337,17 @@ class GymAgentLoop(AgentLoopBase):
         resp_len = len(agent_data.response_mask)
         response_ids = agent_data.prompt_ids[-resp_len:] if resp_len else []
         prompt_ids = agent_data.prompt_ids[: len(agent_data.prompt_ids) - resp_len]
-        multi_modal_data = {"image": agent_data.image_data} if agent_data.image_data else {}
+        prompt_ids, response_ids, response_mask, image_data, response_logprobs = _trim_multimodal_sequence(
+            self.tokenizer,
+            prompt_ids,
+            response_ids,
+            agent_data.response_mask,
+            agent_data.image_data,
+            self.prompt_length,
+            self.response_length,
+            agent_data.response_logprobs if agent_data.response_logprobs else None,
+        )
+        multi_modal_data = {"image": image_data} if image_data else {}
 
         if len(prompt_ids) > self.prompt_length:
             logger.warning(
@@ -271,17 +359,15 @@ class GymAgentLoop(AgentLoopBase):
             )
 
         output = AgentLoopOutput(
-            prompt_ids=prompt_ids[-self.prompt_length:],
-            response_ids=response_ids[: self.response_length],
-            response_mask=agent_data.response_mask[: self.response_length],
+            prompt_ids=prompt_ids,
+            response_ids=response_ids,
+            response_mask=response_mask,
             multi_modal_data=multi_modal_data,
-            response_logprobs=(
-                agent_data.response_logprobs[: self.response_length] if agent_data.response_logprobs else None
-            ),
+            response_logprobs=response_logprobs,
             reward_score=sum(agent_data.env_rewards) if agent_data.env_rewards else 0.0,
             num_turns=agent_data.env_turns,
             metrics=agent_data.metrics,
-            extra_fields={ "image_data": agent_data.image_data,"reward_extra_info": {"traj_success": float(agent_data.traj_success)}},
+            extra_fields={ "image_data": image_data,"reward_extra_info": {"traj_success": float(agent_data.traj_success)}},
         )
         return output
 

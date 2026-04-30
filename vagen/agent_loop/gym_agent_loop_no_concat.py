@@ -25,6 +25,7 @@ from .gym_agent_loop import (
     _flatten_text_only_content,
     _normalize_images,
     _tokenize_raw_prompt_for_sglang,
+    _trim_multimodal_sequence,
 )
 
 class AgentState(Enum):
@@ -341,15 +342,23 @@ class GymAgentLoop(AgentLoopBase):
         resp_len = len(agent_data.turn_response_mask)
         response_ids = agent_data.turn_prompt_ids[-resp_len:] if resp_len else []
         prompt_ids = agent_data.turn_prompt_ids[: len(agent_data.turn_prompt_ids) - resp_len]
+        prompt_ids, response_ids, response_mask, turn_images, response_logprobs = _trim_multimodal_sequence(
+            self.tokenizer,
+            prompt_ids,
+            response_ids,
+            agent_data.turn_response_mask,
+            turn_images,
+            self.prompt_length,
+            self.response_length,
+            agent_data.turn_response_logprobs,
+        )
         multi_modal_data = {"image": turn_images} if turn_images else {}
         output = AgentLoopOutput(
-            prompt_ids=prompt_ids[-self.prompt_length:],
-            response_ids=response_ids[: self.response_length],
-            response_mask=agent_data.turn_response_mask[: self.response_length],
+            prompt_ids=prompt_ids,
+            response_ids=response_ids,
+            response_mask=response_mask,
             multi_modal_data=multi_modal_data,
-            response_logprobs=(
-                agent_data.turn_response_logprobs[: self.response_length] if agent_data.turn_response_logprobs else None
-            ),
+            response_logprobs=response_logprobs,
             reward_score=float(reward),
             num_turns=1,
             metrics=agent_data.metrics,
