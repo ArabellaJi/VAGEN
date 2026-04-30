@@ -106,6 +106,28 @@ validate_positive_integer_value() {
   fi
 }
 
+validate_nonnegative_integer_value() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: ${name} must be a non-negative integer; got '${value}'." >&2
+    exit 1
+  fi
+}
+
+validate_positive_number_value() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "${value}" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]]; then
+    echo "ERROR: ${name} must be a positive number; got '${value}'." >&2
+    exit 1
+  fi
+  if ! awk -v s="${value}" 'BEGIN { exit !(s > 0) }'; then
+    echo "ERROR: ${name} must be > 0; got '${value}'." >&2
+    exit 1
+  fi
+}
+
 window_experiment_name() {
   local window="$1"
   local scale="$2"
@@ -326,18 +348,31 @@ NAV_SAVE_FREQ="${NAV_SAVE_FREQ:-20}"
 NAV_LOG_VAL_GENERATIONS="${NAV_LOG_VAL_GENERATIONS:-10}"
 NAV_LENIENT_ACTION_PARSE="${NAV_LENIENT_ACTION_PARSE:-false}"
 NAV_EXAMPLE_COUNT="${NAV_EXAMPLE_COUNT:-}"
+NAV_ENV_RETRIES="${NAV_ENV_RETRIES:-}"
+NAV_ENV_TIMEOUT="${NAV_ENV_TIMEOUT:-}"
+NAV_ENV_MAX_DELAY="${NAV_ENV_MAX_DELAY:-}"
 export WANDB_DIR="${WANDB_DIR:-${RUN_ROOT}/wandb}"
 mkdir -p "${HF_HOME}" "${HUGGINGFACE_HUB_CACHE}" "${XDG_CACHE_HOME}" "${WANDB_DIR}"
 
-if [[ "${NAV_LENIENT_ACTION_PARSE}" != "false" || -n "${NAV_EXAMPLE_COUNT}" ]]; then
+if [[ -n "${NAV_ENV_RETRIES}" ]]; then
+  validate_nonnegative_integer_value "NAV_ENV_RETRIES" "${NAV_ENV_RETRIES}"
+fi
+if [[ -n "${NAV_ENV_TIMEOUT}" ]]; then
+  validate_positive_number_value "NAV_ENV_TIMEOUT" "${NAV_ENV_TIMEOUT}"
+fi
+if [[ -n "${NAV_ENV_MAX_DELAY}" ]]; then
+  validate_positive_number_value "NAV_ENV_MAX_DELAY" "${NAV_ENV_MAX_DELAY}"
+fi
+
+if [[ "${NAV_LENIENT_ACTION_PARSE}" != "false" || -n "${NAV_EXAMPLE_COUNT}" || -n "${NAV_ENV_RETRIES}" || -n "${NAV_ENV_TIMEOUT}" || -n "${NAV_ENV_MAX_DELAY}" ]]; then
   NAV_CONFIG_OVERRIDE_DIR="${RUN_ROOT}/config_overrides/${EXPERIMENT_NAME}_$(date +%Y%m%d_%H%M%S)"
   mkdir -p "${NAV_CONFIG_OVERRIDE_DIR}"
-  python - "${TRAIN_DATA}" "${VAL_DATA}" "${NAV_CONFIG_OVERRIDE_DIR}" "${NAV_LENIENT_ACTION_PARSE}" "${NAV_EXAMPLE_COUNT}" <<'PY'
+  python - "${TRAIN_DATA}" "${VAL_DATA}" "${NAV_CONFIG_OVERRIDE_DIR}" "${NAV_LENIENT_ACTION_PARSE}" "${NAV_EXAMPLE_COUNT}" "${NAV_ENV_RETRIES}" "${NAV_ENV_TIMEOUT}" "${NAV_ENV_MAX_DELAY}" <<'PY'
 import os
 import sys
 import yaml
 
-train_src, val_src, out_dir, lenient_raw, example_raw = sys.argv[1:6]
+train_src, val_src, out_dir, lenient_raw, example_raw, retries_raw, timeout_raw, max_delay_raw = sys.argv[1:9]
 truthy = {"1", "true", "yes", "on"}
 falsy = {"0", "false", "no", "off", ""}
 value = lenient_raw.strip().lower()
@@ -347,6 +382,9 @@ lenient = value in truthy
 example_count = None if example_raw == "" else int(example_raw)
 if example_count is not None and example_count < 0:
     raise SystemExit(f"NAV_EXAMPLE_COUNT must be >= 0, got {example_count}")
+retries = None if retries_raw == "" else int(retries_raw)
+timeout = None if timeout_raw == "" else float(timeout_raw)
+max_delay = None if max_delay_raw == "" else float(max_delay_raw)
 
 def patch_one(src, name):
     with open(src) as f:
@@ -356,6 +394,12 @@ def patch_one(src, name):
         env_cfg["lenient_action_parse"] = bool(lenient)
         if example_count is not None:
             env_cfg["example_count"] = example_count
+        if retries is not None:
+            env_cfg["retries"] = retries
+        if timeout is not None:
+            env_cfg["timeout"] = timeout
+        if max_delay is not None:
+            env_cfg["max_delay"] = max_delay
     dst = os.path.join(out_dir, name)
     with open(dst, "w") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
@@ -497,6 +541,9 @@ echo "SAVE_FREQ:          ${NAV_SAVE_FREQ}"
 echo "LOG_VAL_GENS:       ${NAV_LOG_VAL_GENERATIONS}"
 echo "LENIENT_ACTION:     ${NAV_LENIENT_ACTION_PARSE}"
 echo "EXAMPLE_COUNT:      ${NAV_EXAMPLE_COUNT:-unchanged}"
+echo "ENV_RETRIES:        ${NAV_ENV_RETRIES:-unchanged}"
+echo "ENV_TIMEOUT:        ${NAV_ENV_TIMEOUT:-unchanged}"
+echo "ENV_MAX_DELAY:      ${NAV_ENV_MAX_DELAY:-unchanged}"
 echo "USE_XVFB:           ${USE_XVFB:-0}"
 echo "CONCAT_MULTI_TURN:  ${CONCAT_MULTI_TURN}"
 echo "HISTORY_ARGS:       ${HISTORY_ARGS[*]:-none}"

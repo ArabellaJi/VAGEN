@@ -352,7 +352,7 @@ class GymImageEnvClient(GymImageEnv):
                     raise RuntimeError(f"Remote call failed: {e}") from e
 
                 jitter = self.backoff_jitter_min + self.backoff_jitter_range * random.random()
-                delay = self.backoff * (2**attempt) * jitter
+                delay = min(self.backoff * (2**attempt) * jitter, self.max_delay)
 
                 if self.log_retries:
                     next_url_index = self._pick_url_index(attempt + 1)
