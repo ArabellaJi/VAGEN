@@ -80,6 +80,7 @@ class AgentData:
 
         # Token buffers
         self.prompt_ids: List[int] = []
+        self.sglang_prompt_ids: List[int] = []
         self.response_ids: List[int] = []
         self.response_mask: List[int] = []
         self.response_logprobs: List[float] = []
@@ -89,10 +90,6 @@ class AgentData:
         self.traj_success: bool = False
         self.env_turns: int = 0
 
-
-        # Track how many images have already been passed to SGLang (for prefix-cache alignment)
-        self.num_images_generated: int = 0
-        self.pending_sglang_image_data: List[Any] = []
 
         # Cached assistant text to step env
         self.last_assistant_text: Optional[str] = None
@@ -109,13 +106,9 @@ def _normalize_images(imgs: List[Image.Image]) -> List[Image.Image]:
         out.append(im.convert("RGB") if isinstance(im, Image.Image) else im)
     return out
 
-def _processor_output_for_sglang(model_inputs: Dict[str, Any]) -> Dict[str, Any]:
-    """Package HF processor output for SGLang token-in VLM generation."""
-    item: Dict[str, Any] = {}
-    for key, value in dict(model_inputs).items():
-        item[key] = value.detach().cpu() if hasattr(value, "detach") else value
-    item["format"] = "processor_output"
-    return item
+def _tokenize_raw_prompt_for_sglang(tokenizer, raw_prompt: str) -> List[int]:
+    """Tokenize a chat-template string without expanding image placeholders."""
+    return tokenizer(raw_prompt, add_special_tokens=False)["input_ids"]
 
 def extract_success(info: Dict[str, Any], success_keys: str = "success|is_success") -> bool:
     """Extract success flag from env info dict."""
@@ -189,10 +182,12 @@ class GymAgentLoop(AgentLoopBase):
                 _placeholder, add_generation_prompt=False, tokenize=False, **cls.apply_chat_template_kwargs
             )
             cls.system_prompt_prefix = processor(text=[_prefix_text], return_tensors="pt")["input_ids"].squeeze(0).tolist()
+            cls.system_prompt_prefix_sglang = _tokenize_raw_prompt_for_sglang(tokenizer, _prefix_text)
         else:
             cls.system_prompt_prefix = tokenizer.apply_chat_template(
                 _placeholder, add_generation_prompt=False, tokenize=True, return_dict=False, **cls.apply_chat_template_kwargs
             )
+            cls.system_prompt_prefix_sglang = cls.system_prompt_prefix
 
     @rollout_trace_op
     async def run(self, sampling_params: Dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -303,8 +298,9 @@ class GymAgentLoop(AgentLoopBase):
                 ),
             )
             model_inputs = self.processor(text=[raw_prompt], images=agent_data.image_data or None, return_tensors="pt")
-            agent_data.pending_sglang_image_data = (
-                [_processor_output_for_sglang(model_inputs)] if agent_data.image_data else []
+            agent_data.sglang_prompt_ids = await self.loop.run_in_executor(
+                None,
+                lambda: _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_prompt),
             )
             agent_data.prompt_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
@@ -322,6 +318,7 @@ class GymAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
+            agent_data.sglang_prompt_ids = list(agent_data.prompt_ids)
         
         if len(agent_data.prompt_ids)>self.prompt_length:
             logger.warning(f"In env:{agent_data.env_name}, initial prompt length {len(agent_data.prompt_ids)} exceeds prompt_length {self.prompt_length}")
@@ -340,18 +337,16 @@ class GymAgentLoop(AgentLoopBase):
         with simple_timer("generate_sequences", agent_data.metrics):
             output = await self.server_manager.generate(
                 request_id=agent_data.request_id,
-                prompt_ids=agent_data.prompt_ids,
+                prompt_ids=agent_data.sglang_prompt_ids,
                 sampling_params=sampling_params_for_turn,
-                image_data=agent_data.pending_sglang_image_data,
+                image_data=agent_data.image_data or None,
             )
-
-        agent_data.num_images_generated = len(agent_data.image_data)
-        agent_data.pending_sglang_image_data = []
 
         agent_data.response_ids = output.token_ids
         if len(output.token_ids)>agent_data.response_limit:
             logger.warning(f"In env:{agent_data.env_name}, generated response length {len(output.token_ids)} exceeds per-turn response_limit {agent_data.response_limit}")
         agent_data.prompt_ids += agent_data.response_ids
+        agent_data.sglang_prompt_ids += agent_data.response_ids
         agent_data.response_mask += [1] * len(agent_data.response_ids)
         if output.log_probs:
             agent_data.response_logprobs += output.log_probs
@@ -419,8 +414,9 @@ class GymAgentLoop(AgentLoopBase):
                 ),
             )
             model_inputs = self.processor(text=[raw_user_suffix], images=new_images or None, return_tensors="pt")
-            agent_data.pending_sglang_image_data = (
-                [_processor_output_for_sglang(model_inputs)] if new_images else []
+            sglang_response_ids = await self.loop.run_in_executor(
+                None,
+                lambda: _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_user_suffix),
             )
             response_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
@@ -435,8 +431,11 @@ class GymAgentLoop(AgentLoopBase):
                     tokenize=True, return_dict=False, **self.apply_chat_template_kwargs
                 ),
             )
+            sglang_response_ids = response_ids
         response_ids = response_ids[len(self.system_prompt_prefix):]
+        sglang_response_ids = sglang_response_ids[len(self.system_prompt_prefix_sglang):]
         agent_data.prompt_ids += response_ids
+        agent_data.sglang_prompt_ids += sglang_response_ids
         agent_data.response_mask += [0] * len(response_ids)
         if agent_data.response_logprobs:
             agent_data.response_logprobs += [0.0] * len(response_ids)

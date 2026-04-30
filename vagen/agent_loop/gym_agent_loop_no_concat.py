@@ -24,7 +24,7 @@ from .gym_agent_loop import (
     extract_success,
     _flatten_text_only_content,
     _normalize_images,
-    _processor_output_for_sglang,
+    _tokenize_raw_prompt_for_sglang,
 )
 
 class AgentState(Enum):
@@ -66,7 +66,6 @@ class AgentData:
         self.history_turns: List[Dict[str, Any]] = []
         # Built by _handle_pending_state, used by _handle_generating_state
         self.context_images: List[Image.Image] = []
-        self.pending_sglang_image_data: List[Any] = []
 
         self.metrics = metrics
         self.request_id = request_id
@@ -77,6 +76,7 @@ class AgentData:
         self.traj_idx = traj_idx
         # Token buffers
         self.turn_prompt_ids: Optional[List[int]] = None
+        self.turn_sglang_prompt_ids: Optional[List[int]] = None
         self.turn_response_ids: Optional[List[int]] = None
         self.turn_response_mask: Optional[List[int]] = None
         self.turn_response_logprobs: Optional[List[int]] = None
@@ -243,8 +243,9 @@ class GymAgentLoop(AgentLoopBase):
                 ),
             )
             model_inputs = self.processor(text=[raw_prompt], images=image_data or None, return_tensors="pt")
-            agent_data.pending_sglang_image_data = (
-                [_processor_output_for_sglang(model_inputs)] if image_data else []
+            agent_data.turn_sglang_prompt_ids = await self.loop.run_in_executor(
+                None,
+                lambda: _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_prompt),
             )
             agent_data.turn_prompt_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
@@ -261,6 +262,7 @@ class GymAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
+            agent_data.turn_sglang_prompt_ids = list(agent_data.turn_prompt_ids)
 
         if len(agent_data.turn_prompt_ids) > self.prompt_length:
             logger.warning(f"In env:{agent_data.env_name}, prompt length {len(agent_data.turn_prompt_ids)} exceeds prompt_length {self.prompt_length}")
@@ -278,16 +280,15 @@ class GymAgentLoop(AgentLoopBase):
         with simple_timer("generate_sequences", agent_data.metrics):
             output = await self.server_manager.generate(
                 request_id = agent_data.request_id,
-                prompt_ids = agent_data.turn_prompt_ids,
+                prompt_ids = agent_data.turn_sglang_prompt_ids,
                 sampling_params = sampling_params_for_turn,
-                image_data = agent_data.pending_sglang_image_data,
+                image_data = agent_data.context_images or None,
             )
-
-        agent_data.pending_sglang_image_data = []
 
         agent_data.turn_response_ids = output.token_ids
         agent_data.turn_response_mask = [1] * len(output.token_ids)
         agent_data.turn_prompt_ids += agent_data.turn_response_ids
+        agent_data.turn_sglang_prompt_ids += agent_data.turn_response_ids
         if output.log_probs:
             agent_data.turn_response_logprobs = output.log_probs
 
