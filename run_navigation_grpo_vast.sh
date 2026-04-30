@@ -320,6 +320,10 @@ export FLASHINFER_JIT_WORKER_TIMEOUT="${FLASHINFER_JIT_WORKER_TIMEOUT:-60}"
 export VAGEN_SGLANG_INIT_TIMEOUT="${VAGEN_SGLANG_INIT_TIMEOUT:-600}"
 TRAINER_LOGGER="${TRAINER_LOGGER:-[console,wandb]}"
 NAV_LOG_IMAGE_ENABLE="${NAV_LOG_IMAGE_ENABLE:-false}"
+NAV_VAL_BEFORE_TRAIN="${NAV_VAL_BEFORE_TRAIN:-True}"
+NAV_TEST_FREQ="${NAV_TEST_FREQ:-10}"
+NAV_SAVE_FREQ="${NAV_SAVE_FREQ:-20}"
+NAV_LOG_VAL_GENERATIONS="${NAV_LOG_VAL_GENERATIONS:-10}"
 export WANDB_DIR="${WANDB_DIR:-${RUN_ROOT}/wandb}"
 mkdir -p "${HF_HOME}" "${HUGGINGFACE_HUB_CACHE}" "${XDG_CACHE_HOME}" "${WANDB_DIR}"
 
@@ -445,6 +449,10 @@ echo "TEMP:               ${TEMP}"
 echo "RAY_TMPDIR:         ${RAY_TMPDIR}"
 echo "TRAINER_LOGGER:     ${TRAINER_LOGGER}"
 echo "NAV_LOG_IMAGE:      ${NAV_LOG_IMAGE_ENABLE}"
+echo "VAL_BEFORE_TRAIN:   ${NAV_VAL_BEFORE_TRAIN}"
+echo "TEST_FREQ:          ${NAV_TEST_FREQ}"
+echo "SAVE_FREQ:          ${NAV_SAVE_FREQ}"
+echo "LOG_VAL_GENS:       ${NAV_LOG_VAL_GENERATIONS}"
 echo "USE_XVFB:           ${USE_XVFB:-0}"
 echo "CONCAT_MULTI_TURN:  ${CONCAT_MULTI_TURN}"
 echo "HISTORY_ARGS:       ${HISTORY_ARGS[*]:-none}"
@@ -608,14 +616,14 @@ PYTHONUNBUFFERED=1 \
     trainer.nnodes=1 \
     trainer.critic_warmup=0 \
     critic.enable=False \
-    trainer.val_before_train=True \
+    trainer.val_before_train="${NAV_VAL_BEFORE_TRAIN}" \
     trainer.resume_mode=disable \
     "trainer.logger=${TRAINER_LOGGER}" \
     "trainer.log_image.enable=${NAV_LOG_IMAGE_ENABLE}" \
     trainer.total_training_steps="${TRAINING_STEPS}" \
-    trainer.save_freq=20 \
-    trainer.test_freq=10 \
-    trainer.log_val_generations=10 \
+    trainer.save_freq="${NAV_SAVE_FREQ}" \
+    trainer.test_freq="${NAV_TEST_FREQ}" \
+    trainer.log_val_generations="${NAV_LOG_VAL_GENERATIONS}" \
     trainer.project_name="nav_window_ablation" \
     trainer.experiment_name="${EXPERIMENT_NAME}" \
     trainer.default_local_dir="${EXPERIMENT_DIR}" \
