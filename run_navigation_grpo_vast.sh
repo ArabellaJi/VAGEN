@@ -10,6 +10,7 @@
 #
 # Useful knobs:
 #   NAV_GPU=0 TRAIN_GPU=1 CONDITION=window3_thumb bash run_navigation_grpo_vast.sh
+#   NAV_GPU=0 TRAIN_GPU=1 CONDITION=window NAV_HISTORY_WINDOW=5 NAV_THUMBNAIL_SCALE=0.25 bash run_navigation_grpo_vast.sh
 #   PREDOWNLOAD_SCENES=1 CONDITION=quick bash run_navigation_grpo_vast.sh
 #   USE_XVFB=1 CONDITION=quick bash run_navigation_grpo_vast.sh
 
@@ -70,6 +71,49 @@ fi
 
 mkdir -p "${PROJECT_ROOT}/logs" "${RUN_ROOT}" "${HF_CACHE}"
 cd "${PROJECT_ROOT}"
+
+validate_history_window_value() {
+  local value="$1"
+  if ! [[ "${value}" =~ ^-?[0-9]+$ ]]; then
+    echo "ERROR: NAV_HISTORY_WINDOW must be an integer >= -1; got '${value}'." >&2
+    exit 1
+  fi
+  if [[ "${value}" -lt -1 ]]; then
+    echo "ERROR: NAV_HISTORY_WINDOW must be >= -1; got '${value}'." >&2
+    echo "Use -1 for all history, 0 for no history, or k>0 for the latest k completed turns." >&2
+    exit 1
+  fi
+}
+
+validate_thumbnail_scale_value() {
+  local value="$1"
+  if ! [[ "${value}" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]]; then
+    echo "ERROR: NAV_THUMBNAIL_SCALE must be a positive number; got '${value}'." >&2
+    exit 1
+  fi
+  if ! awk -v s="${value}" 'BEGIN { exit !(s > 0) }'; then
+    echo "ERROR: NAV_THUMBNAIL_SCALE must be > 0; got '${value}'." >&2
+    exit 1
+  fi
+}
+
+window_experiment_name() {
+  local window="$1"
+  local scale="$2"
+  local base
+  local scale_slug
+  if [[ "${window}" == "-1" ]]; then
+    base="nav_grpo_window_all"
+  else
+    base="nav_grpo_window${window}"
+  fi
+  if awk -v s="${scale}" 'BEGIN { exit !(s == 1.0) }'; then
+    echo "${base}"
+  else
+    scale_slug="${scale//./p}"
+    echo "${base}_thumb${scale_slug}"
+  fi
+}
 
 case "${CONDITION}" in
   quick)
@@ -186,9 +230,32 @@ case "${CONDITION}" in
     HISTORY_ARGS=(trainer.history_window_size=3 trainer.thumbnail_scale=0.25)
     ROLLOUT_NUM_WORKERS=8
     ;;
+  window)
+    NAV_HISTORY_WINDOW="${NAV_HISTORY_WINDOW:-3}"
+    NAV_THUMBNAIL_SCALE="${NAV_THUMBNAIL_SCALE:-1.0}"
+    validate_history_window_value "${NAV_HISTORY_WINDOW}"
+    validate_thumbnail_scale_value "${NAV_THUMBNAIL_SCALE}"
+    EXPERIMENT_NAME="${NAV_EXPERIMENT_NAME:-$(window_experiment_name "${NAV_HISTORY_WINDOW}" "${NAV_THUMBNAIL_SCALE}")}"
+    TRAIN_DATA=${SCRIPTDIR}/train_navigation_window_exp.yaml
+    VAL_DATA=${SCRIPTDIR}/val_navigation_window_exp.yaml
+    NAV_MAX_ENVS=64
+    TRAINING_STEPS=200
+    TRAIN_BATCH_SIZE=30
+    ROLLOUT_N=1
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=7000
+    ROLLOUT_PROMPT=7000
+    ROLLOUT_RESPONSE=1024
+    MAX_BATCHED_TOKENS=9000
+    GPU_MEM_UTIL=0.68
+    CONCAT_MULTI_TURN=False
+    AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent_no_concat.yaml
+    HISTORY_ARGS=(trainer.history_window_size="${NAV_HISTORY_WINDOW}" trainer.thumbnail_scale="${NAV_THUMBNAIL_SCALE}")
+    ROLLOUT_NUM_WORKERS=8
+    ;;
   *)
     echo "ERROR: Unknown CONDITION '${CONDITION}'."
-    echo "Valid: quick | full_memory | no_memory | window3 | thumbnail | window3_thumb"
+    echo "Valid: quick | full_memory | no_memory | window3 | thumbnail | window3_thumb | window"
     exit 1
     ;;
 esac

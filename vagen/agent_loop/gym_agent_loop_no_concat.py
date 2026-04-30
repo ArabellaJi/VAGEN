@@ -110,8 +110,15 @@ class GymAgentLoop(AgentLoopBase):
         cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
-        cls.history_window_size = config.trainer.get("history_window_size", 0)
-        cls.thumbnail_scale = config.trainer.get("thumbnail_scale", 1.0)
+        cls.history_window_size = int(config.trainer.get("history_window_size", 0))
+        cls.thumbnail_scale = float(config.trainer.get("thumbnail_scale", 1.0))
+        if cls.history_window_size < -1:
+            raise ValueError(
+                f"history_window_size must be >= -1, got {cls.history_window_size}. "
+                "-1 means all history, 0 means no history, k>0 means latest k completed turns."
+            )
+        if cls.thumbnail_scale <= 0:
+            raise ValueError(f"thumbnail_scale must be > 0, got {cls.thumbnail_scale}.")
 
 
     @rollout_trace_op
