@@ -537,7 +537,7 @@ class RayPPOTrainer:
 
         lines = []
         for i in range(n):
-            entry = {k: v[i] for k, v in base_data.items()}
+            entry = {k: self._json_safe(v[i]) for k, v in base_data.items()}
             lines.append(json.dumps(entry, ensure_ascii=False))
 
         with open(filename, "w") as f:
@@ -564,6 +564,25 @@ class RayPPOTrainer:
                 done, rest = ray.wait(self._pending_dump_futures, num_returns=1)
                 ray.get(done)
                 self._pending_dump_futures = rest
+
+    @staticmethod
+    def _json_safe(value):
+        """Convert common numpy/torch scalar containers into JSON-safe values."""
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return [RayPPOTrainer._json_safe(v) for v in value.tolist()]
+        if isinstance(value, torch.Tensor):
+            if value.numel() == 1:
+                return value.item()
+            return [RayPPOTrainer._json_safe(v) for v in value.detach().cpu().tolist()]
+        if isinstance(value, dict):
+            return {str(k): RayPPOTrainer._json_safe(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [RayPPOTrainer._json_safe(v) for v in value]
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        return str(value)
 
     def _flush_image_dumps(self):
         if not self._pending_dump_futures:
