@@ -53,6 +53,8 @@ def main(
     # Max concurrent HTTP requests being processed. 0 = unlimited.
     # Set to ~max_envs to avoid queuing more requests than envs can serve.
     max_inflight: int = 128,
+    # How long an HTTP request may wait for an admission slot before 503.
+    admit_timeout: float = 5.0,
     # Thread pool for asyncio.to_thread(). Each AI2-THOR controller is a
     # separate Unity subprocess, so threads genuinely run in parallel (no GIL).
     # Should be >= max_envs so all envs can run blocking calls concurrently.
@@ -80,7 +82,12 @@ def main(
     LOGGER.info(f"GPUs: {devices} | max_envs: {max_envs} | threads: {thread_pool_size}")
 
     handler = NavigationHandler(devices=devices, session_timeout=session_timeout, max_envs=max_envs)
-    service = GymService(handler, max_inflight=max_inflight, api_key=api_key)
+    service = GymService(
+        handler,
+        max_inflight=max_inflight,
+        admit_timeout=admit_timeout,
+        api_key=api_key,
+    )
     app = service.build(
         startup_callback=lambda: asyncio.get_running_loop().set_default_executor(executor),
         shutdown_callback=lambda: executor.shutdown(wait=True),

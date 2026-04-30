@@ -318,20 +318,20 @@ class GymAgentLoop(AgentLoopBase):
         )
 
         # State machine: always GENERATE -> INTERACT, and decide termination inside INTERACT
-        state = AgentState.PENDING
-        while state != AgentState.TERMINATED:
-            if state == AgentState.PENDING:
-                state = await self._handle_pending_state(agent_data, sampling_params)
-            elif state == AgentState.GENERATING:
-                state = await self._handle_generating_state(agent_data, sampling_params)
-            elif state == AgentState.INTERACTING:
-                state = await self._handle_env_state(agent_data, **kwargs)
-            else:
-                logger.error(f"Invalid state: {state}")
-                state = AgentState.TERMINATED
-
-        # Close env after loop
-        await env.close()
+        try:
+            state = AgentState.PENDING
+            while state != AgentState.TERMINATED:
+                if state == AgentState.PENDING:
+                    state = await self._handle_pending_state(agent_data, sampling_params)
+                elif state == AgentState.GENERATING:
+                    state = await self._handle_generating_state(agent_data, sampling_params)
+                elif state == AgentState.INTERACTING:
+                    state = await self._handle_env_state(agent_data, **kwargs)
+                else:
+                    logger.error(f"Invalid state: {state}")
+                    state = AgentState.TERMINATED
+        finally:
+            await env.close()
 
         # Finalize output
         resp_len = len(agent_data.response_mask)

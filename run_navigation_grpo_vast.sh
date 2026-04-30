@@ -307,6 +307,18 @@ if [[ -n "${NAV_MAX_ENVS_OVERRIDE:-}" ]]; then
   validate_positive_integer_value "NAV_MAX_ENVS_OVERRIDE" "${NAV_MAX_ENVS_OVERRIDE}"
   NAV_MAX_ENVS="${NAV_MAX_ENVS_OVERRIDE}"
 fi
+if [[ -n "${NAV_MAX_INFLIGHT_OVERRIDE:-}" ]]; then
+  validate_positive_integer_value "NAV_MAX_INFLIGHT_OVERRIDE" "${NAV_MAX_INFLIGHT_OVERRIDE}"
+  NAV_MAX_INFLIGHT="${NAV_MAX_INFLIGHT_OVERRIDE}"
+else
+  NAV_MAX_INFLIGHT="${NAV_MAX_INFLIGHT:-${NAV_MAX_ENVS}}"
+fi
+if [[ -n "${NAV_THREAD_POOL_SIZE_OVERRIDE:-}" ]]; then
+  validate_positive_integer_value "NAV_THREAD_POOL_SIZE_OVERRIDE" "${NAV_THREAD_POOL_SIZE_OVERRIDE}"
+  NAV_THREAD_POOL_SIZE="${NAV_THREAD_POOL_SIZE_OVERRIDE}"
+else
+  NAV_THREAD_POOL_SIZE="${NAV_THREAD_POOL_SIZE:-${NAV_MAX_ENVS}}"
+fi
 
 if command -v nvcc >/dev/null 2>&1; then
   CUDA_HOME="${CUDA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v nvcc)")")")}"
@@ -351,6 +363,10 @@ NAV_EXAMPLE_COUNT="${NAV_EXAMPLE_COUNT:-}"
 NAV_ENV_RETRIES="${NAV_ENV_RETRIES:-}"
 NAV_ENV_TIMEOUT="${NAV_ENV_TIMEOUT:-}"
 NAV_ENV_MAX_DELAY="${NAV_ENV_MAX_DELAY:-}"
+NAV_ADMIT_TIMEOUT="${NAV_ADMIT_TIMEOUT:-5}"
+NAV_SESSION_TIMEOUT="${NAV_SESSION_TIMEOUT:-3600}"
+NAV_TRAIN_N_ENVS_OVERRIDE="${NAV_TRAIN_N_ENVS_OVERRIDE:-}"
+NAV_VAL_N_ENVS_OVERRIDE="${NAV_VAL_N_ENVS_OVERRIDE:-}"
 export WANDB_DIR="${WANDB_DIR:-${RUN_ROOT}/wandb}"
 mkdir -p "${HF_HOME}" "${HUGGINGFACE_HUB_CACHE}" "${XDG_CACHE_HOME}" "${WANDB_DIR}"
 
@@ -363,16 +379,24 @@ fi
 if [[ -n "${NAV_ENV_MAX_DELAY}" ]]; then
   validate_positive_number_value "NAV_ENV_MAX_DELAY" "${NAV_ENV_MAX_DELAY}"
 fi
+validate_positive_number_value "NAV_ADMIT_TIMEOUT" "${NAV_ADMIT_TIMEOUT}"
+validate_positive_number_value "NAV_SESSION_TIMEOUT" "${NAV_SESSION_TIMEOUT}"
+if [[ -n "${NAV_TRAIN_N_ENVS_OVERRIDE}" ]]; then
+  validate_positive_integer_value "NAV_TRAIN_N_ENVS_OVERRIDE" "${NAV_TRAIN_N_ENVS_OVERRIDE}"
+fi
+if [[ -n "${NAV_VAL_N_ENVS_OVERRIDE}" ]]; then
+  validate_positive_integer_value "NAV_VAL_N_ENVS_OVERRIDE" "${NAV_VAL_N_ENVS_OVERRIDE}"
+fi
 
-if [[ "${NAV_LENIENT_ACTION_PARSE}" != "false" || -n "${NAV_EXAMPLE_COUNT}" || -n "${NAV_ENV_RETRIES}" || -n "${NAV_ENV_TIMEOUT}" || -n "${NAV_ENV_MAX_DELAY}" ]]; then
+if [[ "${NAV_LENIENT_ACTION_PARSE}" != "false" || -n "${NAV_EXAMPLE_COUNT}" || -n "${NAV_ENV_RETRIES}" || -n "${NAV_ENV_TIMEOUT}" || -n "${NAV_ENV_MAX_DELAY}" || -n "${NAV_TRAIN_N_ENVS_OVERRIDE}" || -n "${NAV_VAL_N_ENVS_OVERRIDE}" ]]; then
   NAV_CONFIG_OVERRIDE_DIR="${RUN_ROOT}/config_overrides/${EXPERIMENT_NAME}_$(date +%Y%m%d_%H%M%S)"
   mkdir -p "${NAV_CONFIG_OVERRIDE_DIR}"
-  python - "${TRAIN_DATA}" "${VAL_DATA}" "${NAV_CONFIG_OVERRIDE_DIR}" "${NAV_LENIENT_ACTION_PARSE}" "${NAV_EXAMPLE_COUNT}" "${NAV_ENV_RETRIES}" "${NAV_ENV_TIMEOUT}" "${NAV_ENV_MAX_DELAY}" <<'PY'
+  python - "${TRAIN_DATA}" "${VAL_DATA}" "${NAV_CONFIG_OVERRIDE_DIR}" "${NAV_LENIENT_ACTION_PARSE}" "${NAV_EXAMPLE_COUNT}" "${NAV_ENV_RETRIES}" "${NAV_ENV_TIMEOUT}" "${NAV_ENV_MAX_DELAY}" "${NAV_TRAIN_N_ENVS_OVERRIDE}" "${NAV_VAL_N_ENVS_OVERRIDE}" <<'PY'
 import os
 import sys
 import yaml
 
-train_src, val_src, out_dir, lenient_raw, example_raw, retries_raw, timeout_raw, max_delay_raw = sys.argv[1:9]
+train_src, val_src, out_dir, lenient_raw, example_raw, retries_raw, timeout_raw, max_delay_raw, train_n_envs_raw, val_n_envs_raw = sys.argv[1:11]
 truthy = {"1", "true", "yes", "on"}
 falsy = {"0", "false", "no", "off", ""}
 value = lenient_raw.strip().lower()
@@ -385,11 +409,15 @@ if example_count is not None and example_count < 0:
 retries = None if retries_raw == "" else int(retries_raw)
 timeout = None if timeout_raw == "" else float(timeout_raw)
 max_delay = None if max_delay_raw == "" else float(max_delay_raw)
+train_n_envs = None if train_n_envs_raw == "" else int(train_n_envs_raw)
+val_n_envs = None if val_n_envs_raw == "" else int(val_n_envs_raw)
 
-def patch_one(src, name):
+def patch_one(src, name, n_envs_override):
     with open(src) as f:
         cfg = yaml.safe_load(f)
     for env in cfg.get("envs", []):
+        if n_envs_override is not None:
+            env["n_envs"] = n_envs_override
         env_cfg = env.setdefault("config", {})
         env_cfg["lenient_action_parse"] = bool(lenient)
         if example_count is not None:
@@ -406,8 +434,8 @@ def patch_one(src, name):
     print(f"Wrote navigation config override: {dst}")
     return dst
 
-print(patch_one(train_src, "train.yaml"))
-print(patch_one(val_src, "val.yaml"))
+print(patch_one(train_src, "train.yaml", train_n_envs))
+print(patch_one(val_src, "val.yaml", val_n_envs))
 PY
   TRAIN_DATA="${NAV_CONFIG_OVERRIDE_DIR}/train.yaml"
   VAL_DATA="${NAV_CONFIG_OVERRIDE_DIR}/val.yaml"
@@ -525,6 +553,10 @@ echo "TRAINING_STEPS:     ${TRAINING_STEPS}"
 echo "TRAIN_BATCH_SIZE:   ${TRAIN_BATCH_SIZE}"
 echo "ROLLOUT_WORKERS:    ${ROLLOUT_NUM_WORKERS}"
 echo "NAV_MAX_ENVS:       ${NAV_MAX_ENVS}"
+echo "NAV_MAX_INFLIGHT:   ${NAV_MAX_INFLIGHT}"
+echo "NAV_THREAD_POOL:    ${NAV_THREAD_POOL_SIZE}"
+echo "NAV_ADMIT_TIMEOUT:  ${NAV_ADMIT_TIMEOUT}"
+echo "NAV_SESSION_TIMEOUT:${NAV_SESSION_TIMEOUT}"
 echo "CUDA_HOME:          ${CUDA_HOME:-unset}"
 echo "VK_ICD_FILENAMES:   ${VK_ICD_FILENAMES:-unset}"
 echo "HF_HOME:            ${HF_HOME}"
@@ -544,6 +576,8 @@ echo "EXAMPLE_COUNT:      ${NAV_EXAMPLE_COUNT:-unchanged}"
 echo "ENV_RETRIES:        ${NAV_ENV_RETRIES:-unchanged}"
 echo "ENV_TIMEOUT:        ${NAV_ENV_TIMEOUT:-unchanged}"
 echo "ENV_MAX_DELAY:      ${NAV_ENV_MAX_DELAY:-unchanged}"
+echo "TRAIN_N_ENVS:       ${NAV_TRAIN_N_ENVS_OVERRIDE:-unchanged}"
+echo "VAL_N_ENVS:         ${NAV_VAL_N_ENVS_OVERRIDE:-unchanged}"
 echo "USE_XVFB:           ${USE_XVFB:-0}"
 echo "CONCAT_MULTI_TURN:  ${CONCAT_MULTI_TURN}"
 echo "HISTORY_ARGS:       ${HISTORY_ARGS[*]:-none}"
@@ -604,8 +638,10 @@ CUDA_VISIBLE_DEVICES="${NAV_GPU}" \
   python -m vagen.envs.navigation.serve \
     --devices="[0]" \
     --max_envs="${NAV_MAX_ENVS}" \
-    --max_inflight="${NAV_MAX_ENVS}" \
-    --thread_pool_size="${NAV_MAX_ENVS}" \
+    --max_inflight="${NAV_MAX_INFLIGHT}" \
+    --admit_timeout="${NAV_ADMIT_TIMEOUT}" \
+    --thread_pool_size="${NAV_THREAD_POOL_SIZE}" \
+    --session_timeout="${NAV_SESSION_TIMEOUT}" \
     --port="${NAV_SERVER_PORT}" \
   > "${NAV_SERVER_LOG}" 2>&1 &
 NAV_SERVER_PID=$!

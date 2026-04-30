@@ -174,20 +174,20 @@ class GymAgentLoop(AgentLoopBase):
         )
 
         # State machine: always GENERATE -> INTERACT, and decide termination inside INTERACT
-        state = AgentState.PENDING
-        while state != AgentState.TERMINATED:
-            if state == AgentState.PENDING:
-                state = await self._handle_pending_state(agent_data, sampling_params)
-            elif state == AgentState.GENERATING:
-                state = await self._handle_generating_state(agent_data, sampling_params)
-            elif state == AgentState.INTERACTING:
-                state = await self._handle_env_state(agent_data, **kwargs)
-            else:
-                logger.error(f"Invalid state: {state}")
-                state = AgentState.TERMINATED
-
-        # Close env after loop
-        await env.close()
+        try:
+            state = AgentState.PENDING
+            while state != AgentState.TERMINATED:
+                if state == AgentState.PENDING:
+                    state = await self._handle_pending_state(agent_data, sampling_params)
+                elif state == AgentState.GENERATING:
+                    state = await self._handle_generating_state(agent_data, sampling_params)
+                elif state == AgentState.INTERACTING:
+                    state = await self._handle_env_state(agent_data, **kwargs)
+                else:
+                    logger.error(f"Invalid state: {state}")
+                    state = AgentState.TERMINATED
+        finally:
+            await env.close()
         return agent_data.outputs
 
     def _build_windowed_context(self, agent_data: AgentData):
@@ -349,6 +349,8 @@ class GymAgentLoop(AgentLoopBase):
             agent_data.turn_response_logprobs,
         )
         multi_modal_data = {"image": turn_images} if turn_images else {}
+        turn_metrics = info.get("metrics", {}).get("turn_metrics", {})
+        actions = info.get("actions", [])
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids,
@@ -365,7 +367,15 @@ class GymAgentLoop(AgentLoopBase):
                 "group_idx": agent_data.group_idx,
                 "traj_idx": agent_data.traj_idx,
                 "turn_idx": agent_data.env_turns,
-                          
+                "instruction": info.get("instruction", ""),
+                "actions": "|".join(actions) if isinstance(actions, list) else str(actions),
+                "distance": info.get("distance", None),
+                "action_parse_mode": info.get("action_parse_mode", ""),
+                "format_correct": turn_metrics.get("format_correct", None),
+                "action_is_valid": turn_metrics.get("action_is_valid", None),
+                "action_is_effective": turn_metrics.get("action_is_effective", None),
+                "last_action_success": info.get("last_action_success", None),
+                "env_feedback": info.get("env_feedback", ""),
             },
         )
         agent_data.outputs.append(output)
