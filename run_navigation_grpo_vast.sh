@@ -324,8 +324,50 @@ NAV_VAL_BEFORE_TRAIN="${NAV_VAL_BEFORE_TRAIN:-True}"
 NAV_TEST_FREQ="${NAV_TEST_FREQ:-10}"
 NAV_SAVE_FREQ="${NAV_SAVE_FREQ:-20}"
 NAV_LOG_VAL_GENERATIONS="${NAV_LOG_VAL_GENERATIONS:-10}"
+NAV_LENIENT_ACTION_PARSE="${NAV_LENIENT_ACTION_PARSE:-false}"
+NAV_EXAMPLE_COUNT="${NAV_EXAMPLE_COUNT:-}"
 export WANDB_DIR="${WANDB_DIR:-${RUN_ROOT}/wandb}"
 mkdir -p "${HF_HOME}" "${HUGGINGFACE_HUB_CACHE}" "${XDG_CACHE_HOME}" "${WANDB_DIR}"
+
+if [[ "${NAV_LENIENT_ACTION_PARSE}" != "false" || -n "${NAV_EXAMPLE_COUNT}" ]]; then
+  NAV_CONFIG_OVERRIDE_DIR="${RUN_ROOT}/config_overrides/${EXPERIMENT_NAME}_$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "${NAV_CONFIG_OVERRIDE_DIR}"
+  python - "${TRAIN_DATA}" "${VAL_DATA}" "${NAV_CONFIG_OVERRIDE_DIR}" "${NAV_LENIENT_ACTION_PARSE}" "${NAV_EXAMPLE_COUNT}" <<'PY'
+import os
+import sys
+import yaml
+
+train_src, val_src, out_dir, lenient_raw, example_raw = sys.argv[1:6]
+truthy = {"1", "true", "yes", "on"}
+falsy = {"0", "false", "no", "off", ""}
+value = lenient_raw.strip().lower()
+if value not in truthy | falsy:
+    raise SystemExit(f"NAV_LENIENT_ACTION_PARSE must be boolean-like, got {lenient_raw!r}")
+lenient = value in truthy
+example_count = None if example_raw == "" else int(example_raw)
+if example_count is not None and example_count < 0:
+    raise SystemExit(f"NAV_EXAMPLE_COUNT must be >= 0, got {example_count}")
+
+def patch_one(src, name):
+    with open(src) as f:
+        cfg = yaml.safe_load(f)
+    for env in cfg.get("envs", []):
+        env_cfg = env.setdefault("config", {})
+        env_cfg["lenient_action_parse"] = bool(lenient)
+        if example_count is not None:
+            env_cfg["example_count"] = example_count
+    dst = os.path.join(out_dir, name)
+    with open(dst, "w") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
+    print(f"Wrote navigation config override: {dst}")
+    return dst
+
+print(patch_one(train_src, "train.yaml"))
+print(patch_one(val_src, "val.yaml"))
+PY
+  TRAIN_DATA="${NAV_CONFIG_OVERRIDE_DIR}/train.yaml"
+  VAL_DATA="${NAV_CONFIG_OVERRIDE_DIR}/val.yaml"
+fi
 
 if [[ -z "${VK_ICD_FILENAMES:-}" ]]; then
   shopt -s nullglob
@@ -453,6 +495,8 @@ echo "VAL_BEFORE_TRAIN:   ${NAV_VAL_BEFORE_TRAIN}"
 echo "TEST_FREQ:          ${NAV_TEST_FREQ}"
 echo "SAVE_FREQ:          ${NAV_SAVE_FREQ}"
 echo "LOG_VAL_GENS:       ${NAV_LOG_VAL_GENERATIONS}"
+echo "LENIENT_ACTION:     ${NAV_LENIENT_ACTION_PARSE}"
+echo "EXAMPLE_COUNT:      ${NAV_EXAMPLE_COUNT:-unchanged}"
 echo "USE_XVFB:           ${USE_XVFB:-0}"
 echo "CONCAT_MULTI_TURN:  ${CONCAT_MULTI_TURN}"
 echo "HISTORY_ARGS:       ${HISTORY_ARGS[*]:-none}"

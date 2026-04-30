@@ -30,12 +30,27 @@ _PARSE_PATTERNS = {
     "eval_mode": r"<action>(.*?)</action>",  # lenient: first <action> anywhere
 }
 
+_VALID_ACTION_RE = re.compile(
+    r"\b("
+    r"move_forward|move_backward|move_right|move_left|"
+    r"turn_right|turn_left|look_up|look_down"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_lenient_actions(response: str, max_actions: int) -> List[str]:
+    """Extract known navigation action names from malformed model output."""
+    actions = [m.group(1).lower() for m in _VALID_ACTION_RE.finditer(response)]
+    return actions[:max_actions]
+
 
 def parse_response(
     response: str,
     prompt_format: str = "free_think",
     action_sep: str = "|",
     max_actions: int = 5,
+    lenient_action_parse: bool = False,
 ) -> Dict[str, Any]:
     """Parse an LLM response and extract actions.
 
@@ -43,13 +58,28 @@ def parse_response(
         llm_raw_response, actions, format_correct,
         and optional think/observation/prediction text.
     """
-    result: Dict[str, Any] = {"llm_raw_response": response, "actions": [], "format_correct": False}
+    result: Dict[str, Any] = {
+        "llm_raw_response": response,
+        "actions": [],
+        "format_correct": False,
+        "strict_format_correct": False,
+        "action_parse_mode": "none",
+    }
 
     pattern = _PARSE_PATTERNS.get(prompt_format)
     if pattern is None:
         raise ValueError(f"Unknown prompt_format: {prompt_format}")
     match = re.search(pattern, response, re.DOTALL)
     if not match:
+        if lenient_action_parse:
+            actions = _extract_lenient_actions(response, max_actions)
+            if actions:
+                result["actions"] = actions
+                # Treat leniently extracted valid actions as executable so RL has
+                # a learning signal, while keeping strict_format_correct=False
+                # for diagnostics.
+                result["format_correct"] = True
+                result["action_parse_mode"] = "lenient"
         return result
 
     # Extract named sections based on format
@@ -66,6 +96,8 @@ def parse_response(
         action_text = match.group(1).strip()
 
     result["format_correct"] = True
+    result["strict_format_correct"] = True
+    result["action_parse_mode"] = "strict"
     actions = [a.strip().lower() for a in action_text.split(action_sep) if a.strip()][:max_actions]
     result["actions"] = actions
     return result

@@ -16,8 +16,9 @@ from __future__ import annotations
 
 _FORMAT_INSTRUCTIONS = {
     "free_think": (
-        "You need to think first, then give your action. Respond in this format:\n"
-        "<think>...</think><action>{action_example}</action>"
+        "You need to think first, then give your action. Respond using exactly these XML tags:\n"
+        "<think>...</think><action>{action_example}</action>\n"
+        "Do not write action=, Actions:, markdown, or translated labels. The action names must stay in English."
     ),
     "wm": (
         "You need to describe your observation, think, give your action, then predict "
@@ -26,12 +27,13 @@ _FORMAT_INSTRUCTIONS = {
         "<action>{action_example}</action><prediction>...</prediction>"
     ),
     "no_think": (
-        "You need to only give your action. Respond in this format:\n"
+        "You need to only give your action. Respond using exactly these XML tags:\n"
         "<action>{action_example}</action>"
     ),
     "eval_mode": (
-        "You can optionally think first, then give your action. Respond in this format:\n"
-        "<think>...</think><action>{action_example}</action>"
+        "You can optionally think first, then give your action. Respond using exactly these XML tags:\n"
+        "<think>...</think><action>{action_example}</action>\n"
+        "Do not write action=, Actions:, markdown, or translated labels. The action names must stay in English."
     ),
 }
 
@@ -76,21 +78,27 @@ _EXAMPLES = [
 Example 1:
 Round 1:
 image_1
+<think>
 I can see the garbage can in the upper left corner of the image, next to the kitchen sink. \
 To move there, we can go forward-left, but since there's a kitchen counter directly ahead, \
 we should go left first.
+</think>
 <action>move_left{sep} move_left</action>
 Round 2:
 Env_feedback: Last action is executed successfully.
 image_2
+<think>
 By moving leftward, we are getting closer to the garbage can. \
 Now, the garbage can is in front of me, slightly to the left. There's a large area ahead.
+</think>
 <action>move_forward{sep} move_forward{sep} move_forward{sep} move_left</action>
 Round 3:
 Env_feedback: Last action is executed successfully.
 image_3
+<think>
 The garbage can is very close, still to our front-left. \
 There is still space in front of me to get closer.
+</think>
 <action>move_forward{sep} move_forward{sep} move_left</action>
 Round 4:
 Env_feedback: Success""",

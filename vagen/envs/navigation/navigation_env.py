@@ -41,6 +41,7 @@ class NavigationEnvConfig:
     gpu_device: int = 0
     prompt_format: str = "free_think"   # free_think | wm | no_think | eval_mode
     example_count: int = 0             # number of examples in system prompt (0 = none)
+    lenient_action_parse: bool = False # extract valid action names from malformed outputs
     success_threshold: float = 1.0
     step_length: float = 0.3
     image_placeholder: str = "<image>"
@@ -194,6 +195,7 @@ class NavigationEnv(GymImageEnv):
             prompt_format=self.cfg.prompt_format,
             action_sep=self.cfg.action_sep,
             max_actions=self.cfg.max_actions_per_step,
+            lenient_action_parse=self.cfg.lenient_action_parse,
         )
         actions = parsed["actions"]
         prev_pos = self._agent_pos()
@@ -204,7 +206,7 @@ class NavigationEnv(GymImageEnv):
         info: Dict[str, Any] = {**parsed}
 
         # Track format correctness across episode
-        if not parsed["format_correct"]:
+        if not parsed.get("strict_format_correct", parsed["format_correct"]):
             self._is_format_correct = False
 
         if actions and parsed["format_correct"]:
@@ -238,7 +240,8 @@ class NavigationEnv(GymImageEnv):
                 "turn_metrics": {
                     "action_is_valid": bool(self._valid_actions),
                     "action_is_effective": cur_pos["x"] != prev_pos["x"] or cur_pos["z"] != prev_pos["z"],
-                    "format_correct": parsed["format_correct"],
+                    "format_correct": parsed.get("strict_format_correct", parsed["format_correct"]),
+                    "action_parse_mode": parsed.get("action_parse_mode", "unknown"),
                 },
                 "traj_metrics": {
                     "success": success,
