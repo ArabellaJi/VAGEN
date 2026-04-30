@@ -241,34 +241,25 @@ class GymAgentLoop(AgentLoopBase):
         agent_data.context_images = image_data
 
         if self.processor is not None:
-            raw_prompt = await self.loop.run_in_executor(
-                None,
-                lambda: self.processor.apply_chat_template(
-                    messages,
-                    add_generation_prompt=True,
-                    tokenize=False,
-                    **self.apply_chat_template_kwargs,
-                ),
+            raw_prompt = self.processor.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                tokenize=False,
+                **self.apply_chat_template_kwargs,
             )
             model_inputs = self.processor(text=[raw_prompt], images=image_data or None, return_tensors="pt")
-            agent_data.turn_sglang_prompt_ids = await self.loop.run_in_executor(
-                None,
-                lambda: _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_prompt),
-            )
+            agent_data.turn_sglang_prompt_ids = _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_prompt)
             agent_data.turn_prompt_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
             if image_data:
                 raise ValueError("Environment returned images but `processor` is None.")
             flat_messages = [_flatten_text_only_content(m) for m in messages]
-            agent_data.turn_prompt_ids = await self.loop.run_in_executor(
-                None,
-                lambda: self.tokenizer.apply_chat_template(
-                    flat_messages,
-                    add_generation_prompt=True,
-                    tokenize=True,
-                    return_dict=False,
-                    **self.apply_chat_template_kwargs,
-                ),
+            agent_data.turn_prompt_ids = self.tokenizer.apply_chat_template(
+                flat_messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=False,
+                **self.apply_chat_template_kwargs,
             )
             agent_data.turn_sglang_prompt_ids = list(agent_data.turn_prompt_ids)
 
@@ -301,9 +292,7 @@ class GymAgentLoop(AgentLoopBase):
             agent_data.turn_response_logprobs = output.log_probs
 
         # Cache assistant text and add assistant message (text-only)
-        assistant_message = await self.loop.run_in_executor(
-            None, lambda: self.tokenizer.decode(agent_data.turn_response_ids, skip_special_tokens=True)
-        )
+        assistant_message = self.tokenizer.decode(agent_data.turn_response_ids, skip_special_tokens=True)
         agent_data.last_assistant_text = assistant_message
         return AgentState.INTERACTING
 

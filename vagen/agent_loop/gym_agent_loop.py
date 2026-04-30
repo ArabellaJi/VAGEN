@@ -374,35 +374,26 @@ class GymAgentLoop(AgentLoopBase):
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: Dict[str, Any]) -> AgentState:
         """Encode initial (system + first user) messages into prompt_ids."""
         if self.processor is not None:
-            raw_prompt = await self.loop.run_in_executor(
-                None,
-                lambda: self.processor.apply_chat_template(
-                    agent_data.messages,
-                    add_generation_prompt=True,
-                    tokenize=False,
-                    **self.apply_chat_template_kwargs,
-                ),
+            raw_prompt = self.processor.apply_chat_template(
+                agent_data.messages,
+                add_generation_prompt=True,
+                tokenize=False,
+                **self.apply_chat_template_kwargs,
             )
             model_inputs = self.processor(text=[raw_prompt], images=agent_data.image_data or None, return_tensors="pt")
-            agent_data.sglang_prompt_ids = await self.loop.run_in_executor(
-                None,
-                lambda: _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_prompt),
-            )
+            agent_data.sglang_prompt_ids = _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_prompt)
             agent_data.prompt_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
             if agent_data.image_data:
                 raise ValueError("Environment returned images but `processor` is None.")
 
             flat_messages = [_flatten_text_only_content(msg) for msg in agent_data.messages]
-            agent_data.prompt_ids = await self.loop.run_in_executor(
-                None,
-                lambda: self.tokenizer.apply_chat_template(
-                    flat_messages,
-                    add_generation_prompt=True,
-                    tokenize=True,
-                    return_dict=False,
-                    **self.apply_chat_template_kwargs,
-                ),
+            agent_data.prompt_ids = self.tokenizer.apply_chat_template(
+                flat_messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=False,
+                **self.apply_chat_template_kwargs,
             )
             agent_data.sglang_prompt_ids = list(agent_data.prompt_ids)
         
@@ -438,9 +429,7 @@ class GymAgentLoop(AgentLoopBase):
             agent_data.response_logprobs += output.log_probs
 
         # Cache assistant text and add assistant message (text-only)
-        assistant_message = await self.loop.run_in_executor(
-            None, lambda: self.tokenizer.decode(agent_data.response_ids, skip_special_tokens=True)
-        )
+        assistant_message = self.tokenizer.decode(agent_data.response_ids, skip_special_tokens=True)
         agent_data.last_assistant_text = assistant_message
         agent_data.messages.append({"role": "assistant", "content": assistant_message})
         return AgentState.INTERACTING
@@ -490,32 +479,26 @@ class GymAgentLoop(AgentLoopBase):
 
         _placeholder = {"role": "system", "content": "placeholder"}
         if self.processor is not None:
-            raw_user_suffix = await self.loop.run_in_executor(
-                None,
-                lambda: self.processor.apply_chat_template(
-                    [_placeholder, user_msg],
-                    add_generation_prompt=True,
-                    tokenize=False,
-                    **self.apply_chat_template_kwargs,
-                ),
+            raw_user_suffix = self.processor.apply_chat_template(
+                [_placeholder, user_msg],
+                add_generation_prompt=True,
+                tokenize=False,
+                **self.apply_chat_template_kwargs,
             )
             model_inputs = self.processor(text=[raw_user_suffix], images=new_images or None, return_tensors="pt")
-            sglang_response_ids = await self.loop.run_in_executor(
-                None,
-                lambda: _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_user_suffix),
-            )
+            sglang_response_ids = _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_user_suffix)
             response_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
             if new_images:
                 raise ValueError("Environment returned images but `processor` is None.")
 
             flat_user_msg = _flatten_text_only_content(user_msg)
-            response_ids = await self.loop.run_in_executor(
-                None,
-                lambda: self.tokenizer.apply_chat_template(
-                    [_placeholder, flat_user_msg], add_generation_prompt=True,
-                    tokenize=True, return_dict=False, **self.apply_chat_template_kwargs
-                ),
+            response_ids = self.tokenizer.apply_chat_template(
+                [_placeholder, flat_user_msg],
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=False,
+                **self.apply_chat_template_kwargs,
             )
             sglang_response_ids = response_ids
         response_ids = response_ids[len(self.system_prompt_prefix):]

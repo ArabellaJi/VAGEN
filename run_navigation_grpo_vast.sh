@@ -97,6 +97,15 @@ validate_thumbnail_scale_value() {
   fi
 }
 
+validate_positive_integer_value() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "${value}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: ${name} must be a positive integer; got '${value}'." >&2
+    exit 1
+  fi
+}
+
 window_experiment_name() {
   local window="$1"
   local scale="$2"
@@ -260,6 +269,23 @@ case "${CONDITION}" in
     ;;
 esac
 
+if [[ -n "${NAV_TRAINING_STEPS:-}" ]]; then
+  validate_positive_integer_value "NAV_TRAINING_STEPS" "${NAV_TRAINING_STEPS}"
+  TRAINING_STEPS="${NAV_TRAINING_STEPS}"
+fi
+if [[ -n "${NAV_TRAIN_BATCH_SIZE:-}" ]]; then
+  validate_positive_integer_value "NAV_TRAIN_BATCH_SIZE" "${NAV_TRAIN_BATCH_SIZE}"
+  TRAIN_BATCH_SIZE="${NAV_TRAIN_BATCH_SIZE}"
+fi
+if [[ -n "${NAV_ROLLOUT_NUM_WORKERS:-}" ]]; then
+  validate_positive_integer_value "NAV_ROLLOUT_NUM_WORKERS" "${NAV_ROLLOUT_NUM_WORKERS}"
+  ROLLOUT_NUM_WORKERS="${NAV_ROLLOUT_NUM_WORKERS}"
+fi
+if [[ -n "${NAV_MAX_ENVS_OVERRIDE:-}" ]]; then
+  validate_positive_integer_value "NAV_MAX_ENVS_OVERRIDE" "${NAV_MAX_ENVS_OVERRIDE}"
+  NAV_MAX_ENVS="${NAV_MAX_ENVS_OVERRIDE}"
+fi
+
 if command -v nvcc >/dev/null 2>&1; then
   CUDA_HOME="${CUDA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v nvcc)")")")}"
 elif [[ -d /usr/local/cuda ]]; then
@@ -404,6 +430,10 @@ echo "TRAIN_DATA:         ${TRAIN_DATA}"
 echo "VAL_DATA:           ${VAL_DATA}"
 echo "NAV_GPU:            ${NAV_GPU}"
 echo "TRAIN_GPU:          ${TRAIN_GPU}"
+echo "TRAINING_STEPS:     ${TRAINING_STEPS}"
+echo "TRAIN_BATCH_SIZE:   ${TRAIN_BATCH_SIZE}"
+echo "ROLLOUT_WORKERS:    ${ROLLOUT_NUM_WORKERS}"
+echo "NAV_MAX_ENVS:       ${NAV_MAX_ENVS}"
 echo "CUDA_HOME:          ${CUDA_HOME:-unset}"
 echo "VK_ICD_FILENAMES:   ${VK_ICD_FILENAMES:-unset}"
 echo "HF_HOME:            ${HF_HOME}"
