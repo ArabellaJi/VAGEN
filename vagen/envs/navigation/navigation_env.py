@@ -153,6 +153,7 @@ class NavigationEnv(GymImageEnv):
         else:
             obs_str = action_template(
                 valid_action=self._valid_actions, observation=ph,
+                instruction=self._instruction,
                 reward=self._reward, done=self._is_success(),
                 env_feedback=self._info.get("env_feedback", ""),
             )

@@ -4,7 +4,7 @@ Prompt templates for the AI2-THOR navigation environment.
 Structure:
   - system_prompt(): shared base prompt (role, actions, hints) + format instruction + optional examples
   - init_observation_template(): first observation (includes instruction)
-  - action_template(): subsequent observations (no instruction, no format instruction)
+  - action_template(): subsequent observations (keeps instruction pinned, no format instruction)
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ turn_right: Rotate to the right by 90 degrees
 turn_left: Rotate to the left by 90 degrees
 look_up: Tilt the camera upward by 30 degrees
 look_down: Tilt the camera downward by 30 degrees
-The instruction will be provided in the first observation. Look at the image carefully and navigate to complete the instruction.
+The instruction will be provided in each observation. Look at the image carefully and navigate to complete the instruction.
 Hints:
 1. You can take multiple actions at a time, in most cases, if you find the target object is far away from you, you can call move_forward, move_left and move_right multiple times.
 2. If you find yourself seems to be stuck, you can look_down to see if there's any object above or below you, you can also rotate to see if there's any object behind you."""
@@ -140,16 +140,19 @@ def init_observation_template(observation: str, instruction: str) -> str:
 def action_template(
     valid_action,
     observation: str,
+    instruction: str = "",
     env_feedback: str = "",
     reward=0.0,
     done=False,
 ) -> str:
-    """Subsequent observations — no instruction repetition, no format instruction."""
+    """Subsequent observations - pin instruction, but do not repeat format instruction."""
+    instruction_line = f"Human Instruction: {instruction}\n" if instruction else ""
     return (
         f"After your action, the extracted valid action is {valid_action}.\n"
         f"The environment feedback is: {env_feedback}\n"
         f"reward: {reward}\n"
         f"done: {done}\n"
+        f"{instruction_line}"
         f"After that, the observation is:\n"
         f"{observation}\n"
         f"Decide your next action(s)."
