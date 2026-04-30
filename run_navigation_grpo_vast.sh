@@ -319,6 +319,7 @@ export FLASHINFER_ENABLE_JIT="${FLASHINFER_ENABLE_JIT:-0}"
 export FLASHINFER_JIT_WORKER_TIMEOUT="${FLASHINFER_JIT_WORKER_TIMEOUT:-60}"
 export VAGEN_SGLANG_INIT_TIMEOUT="${VAGEN_SGLANG_INIT_TIMEOUT:-600}"
 TRAINER_LOGGER="${TRAINER_LOGGER:-[console,wandb]}"
+NAV_LOG_IMAGE_ENABLE="${NAV_LOG_IMAGE_ENABLE:-false}"
 export WANDB_DIR="${WANDB_DIR:-${RUN_ROOT}/wandb}"
 mkdir -p "${HF_HOME}" "${HUGGINGFACE_HUB_CACHE}" "${XDG_CACHE_HOME}" "${WANDB_DIR}"
 
@@ -443,6 +444,7 @@ echo "TMP:                ${TMP}"
 echo "TEMP:               ${TEMP}"
 echo "RAY_TMPDIR:         ${RAY_TMPDIR}"
 echo "TRAINER_LOGGER:     ${TRAINER_LOGGER}"
+echo "NAV_LOG_IMAGE:      ${NAV_LOG_IMAGE_ENABLE}"
 echo "USE_XVFB:           ${USE_XVFB:-0}"
 echo "CONCAT_MULTI_TURN:  ${CONCAT_MULTI_TURN}"
 echo "HISTORY_ARGS:       ${HISTORY_ARGS[*]:-none}"
@@ -609,7 +611,7 @@ PYTHONUNBUFFERED=1 \
     trainer.val_before_train=True \
     trainer.resume_mode=disable \
     "trainer.logger=${TRAINER_LOGGER}" \
-    'trainer.log_image.enable=True' \
+    "trainer.log_image.enable=${NAV_LOG_IMAGE_ENABLE}" \
     trainer.total_training_steps="${TRAINING_STEPS}" \
     trainer.save_freq=20 \
     trainer.test_freq=10 \
