@@ -61,7 +61,9 @@ fi
 if command -v vulkaninfo >/dev/null 2>&1; then
   vulkaninfo --summary | sed -n '1,120p'
 else
-  echo "WARNING: vulkaninfo is not installed. Install vulkan-tools for diagnostics."
+  echo "ERROR: vulkaninfo is not installed. AI2-THOR CloudRendering calls vulkaninfo before launching Unity." >&2
+  echo "Install vulkan-tools in the conda env, load a Vulkan module if Delta provides one, or ask the admin to install it." >&2
+  exit 1
 fi
 
 echo
