@@ -69,6 +69,9 @@ if [[ "${NAV_GPU}" == "${TRAIN_GPU}" && "${ALLOW_SINGLE_GPU_TRAIN:-0}" != "1" ]]
   exit 1
 fi
 
+NAV_CUDA_VISIBLE_DEVICES="${NAV_CUDA_VISIBLE_DEVICES:-${NAV_GPU}}"
+TRAIN_CUDA_VISIBLE_DEVICES="${TRAIN_CUDA_VISIBLE_DEVICES:-${TRAIN_GPU}}"
+
 mkdir -p "${PROJECT_ROOT}/logs" "${RUN_ROOT}" "${HF_CACHE}"
 cd "${PROJECT_ROOT}"
 
@@ -486,7 +489,7 @@ RAY_RUNTIME_ENV_ARGS=(
   "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_PATH='${CUDA_PATH:-${CUDA_HOME}}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.PATH='${PATH}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.LD_LIBRARY_PATH='${LD_LIBRARY_PATH:-}'"
-  "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_VISIBLE_DEVICES='${TRAIN_GPU}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_VISIBLE_DEVICES='${TRAIN_CUDA_VISIBLE_DEVICES}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.TMPDIR='${TMPDIR}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.TMP='${TMP}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.TEMP='${TEMP}'"
@@ -549,6 +552,8 @@ echo "TRAIN_DATA:         ${TRAIN_DATA}"
 echo "VAL_DATA:           ${VAL_DATA}"
 echo "NAV_GPU:            ${NAV_GPU}"
 echo "TRAIN_GPU:          ${TRAIN_GPU}"
+echo "NAV_CUDA_VISIBLE:   ${NAV_CUDA_VISIBLE_DEVICES}"
+echo "TRAIN_CUDA_VISIBLE: ${TRAIN_CUDA_VISIBLE_DEVICES}"
 echo "TRAINING_STEPS:     ${TRAINING_STEPS}"
 echo "TRAIN_BATCH_SIZE:   ${TRAIN_BATCH_SIZE}"
 echo "ROLLOUT_WORKERS:    ${ROLLOUT_NUM_WORKERS}"
@@ -627,14 +632,14 @@ if missing:
 PY
 
 if [[ "${PREDOWNLOAD_SCENES:-0}" == "1" ]]; then
-  echo "Pre-downloading AI2-THOR scenes on NAV_GPU=${NAV_GPU}..."
-  CUDA_VISIBLE_DEVICES="${NAV_GPU}" python -m vagen.envs.navigation.pre_download_scenes --gpu 0
+  echo "Pre-downloading AI2-THOR scenes with CUDA_VISIBLE_DEVICES=${NAV_CUDA_VISIBLE_DEVICES}..."
+  CUDA_VISIBLE_DEVICES="${NAV_CUDA_VISIBLE_DEVICES}" python -m vagen.envs.navigation.pre_download_scenes --gpu 0
 fi
 
 NAV_SERVER_LOG="${PROJECT_ROOT}/logs/nav_server_vast_${CONDITION}_$(date +%Y%m%d_%H%M%S).log"
 echo
-echo "Starting navigation server on physical GPU ${NAV_GPU} (visible GPU 0, max_envs=${NAV_MAX_ENVS})..."
-CUDA_VISIBLE_DEVICES="${NAV_GPU}" \
+echo "Starting navigation server with CUDA_VISIBLE_DEVICES=${NAV_CUDA_VISIBLE_DEVICES} (AI2-THOR gpu 0, max_envs=${NAV_MAX_ENVS})..."
+CUDA_VISIBLE_DEVICES="${NAV_CUDA_VISIBLE_DEVICES}" \
   python -m vagen.envs.navigation.serve \
     --devices="[0]" \
     --max_envs="${NAV_MAX_ENVS}" \
@@ -674,7 +679,7 @@ fi
 
 if [[ "${VERIFY_SERVER_RESET:-1}" == "1" ]]; then
   echo "Running one remote reset smoke test. This is the check that actually starts Unity."
-  CUDA_VISIBLE_DEVICES="${NAV_GPU}" \
+  CUDA_VISIBLE_DEVICES="${NAV_CUDA_VISIBLE_DEVICES}" \
     python -m vagen.envs.navigation.benchmark \
       --base_url "http://${NAV_SERVER_HOST}:${NAV_SERVER_PORT}" \
       --num_rounds 1 \
@@ -687,9 +692,9 @@ EXPERIMENT_DIR="${RUN_ROOT}/checkpoints/${EXPERIMENT_NAME}"
 mkdir -p "${EXPERIMENT_DIR}"
 
 echo
-echo "Starting training on physical GPU ${TRAIN_GPU}: ${EXPERIMENT_NAME}"
+echo "Starting training with CUDA_VISIBLE_DEVICES=${TRAIN_CUDA_VISIBLE_DEVICES}: ${EXPERIMENT_NAME}"
 set +e
-CUDA_VISIBLE_DEVICES="${TRAIN_GPU}" \
+CUDA_VISIBLE_DEVICES="${TRAIN_CUDA_VISIBLE_DEVICES}" \
 PYTHONUNBUFFERED=1 \
   python -m vagen.main_ppo \
     --config-path="${PROJECT_ROOT}/vagen/configs" \
