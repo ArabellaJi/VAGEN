@@ -40,7 +40,8 @@
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=wenlanji2026@u.northwestern.edu
 
-set -eo pipefail
+set -Eeo pipefail
+trap 'status=$?; echo "ERROR: run_navigation_grpo_access.sh failed at line ${LINENO} with exit=${status}" >&2; exit ${status}' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -60,7 +61,17 @@ fi
 ACCESS_WORK_ROOT="${ACCESS_WORK_ROOT:-/work/hdd/${ACCESS_PROJECT_CODE}/${USER}}"
 RUN_ROOT="${RUN_ROOT:-${ACCESS_WORK_ROOT}/vagen_runs}"
 HF_CACHE="${HF_CACHE:-${ACCESS_WORK_ROOT}/hf_cache}"
+CONDA_ENV_PATH_DEFAULT="${ACCESS_WORK_ROOT}/conda_envs/vagen_noflash"
+if [[ -z "${CONDA_ENV_NAME:-}" && -d "${CONDA_ENV_PATH_DEFAULT}" ]]; then
+  CONDA_ENV_NAME="${CONDA_ENV_PATH_DEFAULT}"
+fi
 CONDA_ENV_NAME="${CONDA_ENV_NAME:-vagen_noflash}"
+
+echo "Starting run_navigation_grpo_access.sh on host $(hostname)"
+echo "Initial PROJECT_ROOT=${PROJECT_ROOT}"
+echo "Initial RUN_ROOT=${RUN_ROOT}"
+echo "Initial HF_CACHE=${HF_CACHE}"
+echo "Requested CONDA_ENV_NAME=${CONDA_ENV_NAME}"
 
 if [[ ! -d "${PROJECT_ROOT}/vagen/configs" ]]; then
   echo "ERROR: PROJECT_ROOT does not look like the VAGEN repo root: ${PROJECT_ROOT}" >&2
@@ -95,7 +106,13 @@ else
 fi
 
 if [[ -f ~/.bashrc ]]; then
+  set +e
   source ~/.bashrc
+  bashrc_status=$?
+  set -e
+  if [[ "${bashrc_status}" -ne 0 ]]; then
+    echo "WARNING: ~/.bashrc returned ${bashrc_status}; continuing because batch setup will validate conda explicitly." >&2
+  fi
 fi
 if command -v conda >/dev/null 2>&1; then
   eval "$(conda shell.bash hook)" >/dev/null 2>&1 || true
@@ -105,7 +122,10 @@ if ! command -v conda >/dev/null 2>&1; then
   module list 2>&1 || true
   exit 1
 fi
+echo "Conda executable: $(command -v conda)"
+unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_SHLVL
 conda activate "${CONDA_ENV_NAME}"
+echo "Activated conda env: ${CONDA_PREFIX:-unset}"
 
 if command -v nvcc >/dev/null 2>&1; then
   export CUDA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v nvcc)")")")"
