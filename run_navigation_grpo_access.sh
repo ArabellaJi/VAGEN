@@ -40,8 +40,8 @@
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=wenlanji2026@u.northwestern.edu
 
-set -Eeo pipefail
-trap 'status=$?; echo "ERROR: run_navigation_grpo_access.sh failed at line ${LINENO} with exit=${status}" >&2; exit ${status}' ERR
+set -eo pipefail
+trap 'status=$?; echo "ERROR: run_navigation_grpo_access.sh failed near line ${LINENO} with exit=${status}" >&2; exit ${status}' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -85,7 +85,11 @@ cd "${PROJECT_ROOT}"
 load_first_available_module() {
   local candidate
   for candidate in "$@"; do
-    if module load "${candidate}" >/dev/null 2>&1; then
+    set +e
+    module load "${candidate}" >/dev/null 2>&1
+    local status=$?
+    set -e
+    if [[ "${status}" -eq 0 ]]; then
       echo "Loaded module: ${candidate}"
       return 0
     fi
