@@ -111,11 +111,15 @@ else
   echo "WARNING: module command is unavailable; assuming conda/cuda are already configured." >&2
 fi
 
-if [[ -f ~/.bashrc ]]; then
+if [[ "${SKIP_BASHRC:-1}" == "1" ]]; then
+  echo "SKIP_BASHRC=1; skipping ~/.bashrc."
+elif [[ -f ~/.bashrc ]]; then
+  trap - ERR
   set +e
   source ~/.bashrc
   bashrc_status=$?
   set -e
+  trap 'status=$?; echo "ERROR: run_navigation_grpo_access.sh failed near line ${LINENO} with exit=${status}; command=${BASH_COMMAND}" >&2; exit ${status}' ERR
   if [[ "${bashrc_status}" -ne 0 ]]; then
     echo "WARNING: ~/.bashrc returned ${bashrc_status}; continuing because batch setup will validate conda explicitly." >&2
   fi
