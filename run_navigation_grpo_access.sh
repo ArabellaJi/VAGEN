@@ -186,6 +186,9 @@ esac
 export PROJECT_ROOT
 export RUN_ROOT
 export HF_CACHE
+if [[ "${CONDITION:-quick}" == "quick" && -z "${TRAINER_LOGGER:-}" ]]; then
+  export TRAINER_LOGGER="[console]"
+fi
 export HF_HOME="${HF_HOME:-${HF_CACHE}}"
 export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-${HF_HOME}/hub}"
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
