@@ -338,6 +338,7 @@ if [[ -n "${CUDA_HOME}" ]]; then
 fi
 
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
+export PYTHONNOUSERSITE="${PYTHONNOUSERSITE:-1}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:False}"
 export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0;9.0}"
 export HF_HOME="${HF_HOME:-${HF_CACHE}}"
@@ -502,6 +503,7 @@ RAY_RUNTIME_ENV_ARGS=(
   "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF='${PYTORCH_CUDA_ALLOC_CONF}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.TORCH_CUDA_ARCH_LIST='${TORCH_CUDA_ARCH_LIST}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.PYTHONPATH='${PYTHONPATH}'"
+  "+ray_kwargs.ray_init.runtime_env.env_vars.PYTHONNOUSERSITE='${PYTHONNOUSERSITE}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_METHOD='${VAGEN_SGLANG_WEIGHT_SYNC_METHOD}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_DIR='${VAGEN_SGLANG_WEIGHT_SYNC_DIR}'"
   "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT='${VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT}'"
@@ -574,6 +576,7 @@ echo "TMP:                ${TMP}"
 echo "TEMP:               ${TEMP}"
 echo "RAY_TMPDIR:         ${RAY_TMPDIR}"
 echo "RAY_START_WAIT:     ${RAY_raylet_start_wait_time_s}"
+echo "PYTHONNOUSERSITE:   ${PYTHONNOUSERSITE}"
 echo "TRAINER_LOGGER:     ${TRAINER_LOGGER}"
 echo "NAV_LOG_IMAGE:      ${NAV_LOG_IMAGE_ENABLE}"
 echo "VAL_BEFORE_TRAIN:   ${NAV_VAL_BEFORE_TRAIN}"

@@ -186,6 +186,7 @@ esac
 export PROJECT_ROOT
 export RUN_ROOT
 export HF_CACHE
+export PYTHONNOUSERSITE="${PYTHONNOUSERSITE:-1}"
 if [[ "${CONDITION:-quick}" == "quick" && -z "${TRAINER_LOGGER:-}" ]]; then
   export TRAINER_LOGGER="[console]"
 fi
