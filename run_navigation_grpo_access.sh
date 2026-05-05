@@ -41,7 +41,7 @@
 #SBATCH --mail-user=wenlanji2026@u.northwestern.edu
 
 set -eo pipefail
-trap 'status=$?; echo "ERROR: run_navigation_grpo_access.sh failed near line ${LINENO} with exit=${status}" >&2; exit ${status}' ERR
+trap 'status=$?; echo "ERROR: run_navigation_grpo_access.sh failed near line ${LINENO} with exit=${status}; command=${BASH_COMMAND}" >&2; exit ${status}' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -97,7 +97,9 @@ load_first_available_module() {
   return 1
 }
 
-if command -v module >/dev/null 2>&1; then
+if [[ "${SKIP_MODULE_SETUP:-0}" == "1" ]]; then
+  echo "SKIP_MODULE_SETUP=1; skipping module reset/load."
+elif command -v module >/dev/null 2>&1; then
   module reset || true
   if ! command -v conda >/dev/null 2>&1; then
     load_first_available_module anaconda3_gpu pytorch-conda/2.8 || true
