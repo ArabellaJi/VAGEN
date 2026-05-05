@@ -27,6 +27,10 @@ HF_CACHE="${HF_CACHE:-${RUN_ROOT}/hf_cache}"
 DEFAULT_TMP_ROOT="${VAGEN_TMP_ROOT:-/tmp}"
 SCRIPTDIR="${PROJECT_ROOT}/examples/train/navigation"
 
+log_stage() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
 CONDITION="${CONDITION:-quick}"
 NAV_SERVER_PORT="${NAV_SERVER_PORT:-8000}"
 NAV_SERVER_HOST="${NAV_SERVER_HOST:-127.0.0.1}"
@@ -598,6 +602,7 @@ nvidia-smi || true
 echo
 echo "Disk space:"
 df -h "${RUN_ROOT}" "${TMPDIR}" "${HF_HOME}" /tmp 2>/dev/null | awk 'NR == 1 || !seen[$6]++'
+log_stage "Checking Python temp directory"
 python - <<'PY'
 import os
 import tempfile
@@ -611,9 +616,12 @@ for name in ("TMPDIR", "TMP", "TEMP"):
     print(f"{name}={os.environ.get(name)}")
 PY
 if command -v vulkaninfo >/dev/null 2>&1; then
+  log_stage "Running vulkaninfo --summary"
   vulkaninfo --summary | sed -n '1,80p' || true
+  log_stage "Finished vulkaninfo --summary"
 fi
 
+log_stage "Checking torch CUDA visibility"
 python - <<'PY'
 import sys
 import torch
@@ -622,7 +630,9 @@ print("CUDA available:", torch.cuda.is_available(), "| device count:", torch.cud
 for i in range(torch.cuda.device_count()):
     print(f"  GPU {i}:", torch.cuda.get_device_name(i))
 PY
+log_stage "Finished torch CUDA visibility check"
 
+log_stage "Checking transformers Qwen2.5-VL support"
 python - <<'PY'
 import sys
 import transformers
@@ -637,6 +647,7 @@ if missing:
         + ". Install a Qwen2.5-VL-capable version, e.g. `pip install -U transformers==4.57.1`."
     )
 PY
+log_stage "Finished transformers check"
 
 if [[ "${PREDOWNLOAD_SCENES:-0}" == "1" ]]; then
   echo "Pre-downloading AI2-THOR scenes with CUDA_VISIBLE_DEVICES=${NAV_CUDA_VISIBLE_DEVICES}..."
@@ -700,6 +711,7 @@ mkdir -p "${EXPERIMENT_DIR}"
 
 echo
 echo "Starting training with CUDA_VISIBLE_DEVICES=${TRAIN_CUDA_VISIBLE_DEVICES}: ${EXPERIMENT_NAME}"
+log_stage "Launching training process"
 set +e
 CUDA_VISIBLE_DEVICES="${TRAIN_CUDA_VISIBLE_DEVICES}" \
 PYTHONUNBUFFERED=1 \
@@ -778,5 +790,6 @@ TRAIN_EXIT=${PIPESTATUS[0]}
 set -e
 
 echo
+log_stage "Training process exited"
 echo "Training finished with exit=${TRAIN_EXIT}."
 exit "${TRAIN_EXIT}"
