@@ -1,0 +1,13 @@
+envs:
+  - name: Crafter
+    n_envs: 10000
+    data_source: crafter
+    seed: [1, 10000, 1]
+    max_turns: 15
+    response_length_per_turn: 512
+    config:
+      render_mode: vision
+      render_scale: 4        # 256×256 px — keeps image token count manageable
+      prompt_format: free_think
+      achievement_reward: 1.0
+      format_reward: 0.0
