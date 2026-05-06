@@ -1,10 +1,10 @@
 #!/bin/bash
 # Quest (Northwestern) launcher for Crafter GRPO training.
-# Mirrors run_vagen_train_grpo_sglang_disk.sh; adapted for Crafter 4-GPU setup.
+# Mirrors run_vagen_train_grpo_sglang_disk.sh; adapted for Crafter.
 #
 # Usage:
-#   sbatch examples/train/crafter/submit_grpo_qwen25vl3b.sh
-#   sbatch --gres=gpu:h100:4 examples/train/crafter/submit_grpo_qwen25vl3b.sh
+#   sbatch examples/train/crafter/submit_grpo_qwen25vl3b.sh           # full run (4 GPU, ~72h)
+#   sbatch examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke     # pipeline check (1 GPU, ~30min)
 #
 # Memory config: history_window_size=0 (no-concat, each turn independent)
 #   Prompt per turn: sys (~650) + obs image (~950) ≈ 1700 tokens  → ROLLOUT_PROMPT=3000
@@ -27,37 +27,74 @@
 
 set -eo pipefail
 
+MODE="${1:-full}"
+
 PROJECT_ROOT=/home/eiu4164/projects/VAGEN
 RUN_ROOT=/projects/p33224/vagen_runs
 MODEL_REPO_ID="Qwen/Qwen2.5-VL-3B-Instruct"
 REF_MODEL_PATH="${REF_MODEL_PATH:-${HF_MODEL_LOCAL_PATH:-${MODEL_REPO_ID}}}"
 HF_HOME_DEFAULT=/projects/p33224/hf_cache
 
-EXPERIMENT_NAME=crafter_grpo_3b
-TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
-VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
-DATA_MAX_PROMPT=3000
-DATA_MAX_RESPONSE=8000
-ROLLOUT_PROMPT=3000
-ROLLOUT_RESPONSE=512
-MAX_BATCHED_TOKENS=10000
-TRAIN_BATCH_SIZE=32
-PPO_MINI_BATCH_SIZE=32
-ROLLOUT_N=8
-VAL_BATCH_SIZE=32
-N_GPUS_PER_NODE=4
-GPU_MEMORY_UTIL=0.6
-AGENT_CONFIG=agent_no_concat.yaml
+# ── Mode selection ─────────────────────────────────────────────────────────────
+case "${MODE}" in
+  smoke)
+    # Pipeline sanity check: 1 GPU, tiny batch, 3 steps, no val, ~30 min.
+    # Submit with: sbatch --gres=gpu:h100:1 --time=01:00:00 ... smoke
+    EXPERIMENT_NAME=crafter_grpo_3b_smoke
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=8000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=6000
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=4
+    N_GPUS_PER_NODE=1
+    GPU_MEMORY_UTIL=0.6
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    VAL_BEFORE_TRAIN=False
+    TOTAL_TRAINING_STEPS=3
+    SAVE_FREQ=0
+    TEST_FREQ=0
+    LOG_VAL_GENERATIONS=0
+    ;;
+  full)
+    # Full training: 4 GPU, 400 steps, ~72 hours.
+    EXPERIMENT_NAME=crafter_grpo_3b
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=8000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=10000
+    TRAIN_BATCH_SIZE=32
+    PPO_MINI_BATCH_SIZE=32
+    ROLLOUT_N=8
+    VAL_BATCH_SIZE=32
+    N_GPUS_PER_NODE=4
+    GPU_MEMORY_UTIL=0.6
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    VAL_BEFORE_TRAIN=True
+    TOTAL_TRAINING_STEPS=100
+    SAVE_FREQ=20
+    TEST_FREQ=20
+    LOG_VAL_GENERATIONS=5
+    ;;
+  *)
+    echo "Unknown MODE: ${MODE}. Use 'smoke' or 'full'." >&2; exit 1
+    ;;
+esac
 CONCAT_MULTI_TURN=False
 ADV_ESTIMATOR=grpo
 MAX_AGENT_NUM_WORKERS=4
 VAGEN_SGLANG_INIT_TIMEOUT=1800
-RAY_NUM_CPUS=32
-VAL_BEFORE_TRAIN=True
-TOTAL_TRAINING_STEPS=400
-SAVE_FREQ=20
-TEST_FREQ=20
-LOG_VAL_GENERATIONS=5
+RAY_NUM_CPUS=$((N_GPUS_PER_NODE * 8))
 
 # Resolve local HF snapshot if already cached
 if [ "${REF_MODEL_PATH}" = "${MODEL_REPO_ID}" ]; then
