@@ -3,8 +3,9 @@
 # Mirrors run_vagen_train_grpo_sglang_disk.sh; adapted for Crafter.
 #
 # Usage:
-#   sbatch examples/train/crafter/submit_grpo_qwen25vl3b.sh           # full run (4 GPU, ~72h)
-#   sbatch examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke     # pipeline check (1 GPU, ~30min)
+#   sbatch --gres=gpu:h100:4 examples/train/crafter/submit_grpo_qwen25vl3b.sh full    # 4 GPU, 100 steps, ~24h
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu   # 1 GPU, 100 steps, ~17h (less queue wait)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke  # 1 GPU, 3 steps, ~30 min pipeline check
 #
 # Memory config: history_window_size=0 (no-concat, each turn independent)
 #   Prompt per turn: sys (~650) + obs image (~950) ≈ 1700 tokens  → ROLLOUT_PROMPT=3000
@@ -62,8 +63,34 @@ case "${MODE}" in
     TEST_FREQ=0
     LOG_VAL_GENERATIONS=0
     ;;
+  1gpu)
+    # Single-GPU training: fewer queue wait, 100 steps, ~17 hours.
+    # Submit with: sbatch --gres=gpu:h100:1 --time=20:00:00 ... 1gpu
+    EXPERIMENT_NAME=crafter_grpo_3b_1gpu
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=8000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=6000
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=8
+    N_GPUS_PER_NODE=1
+    GPU_MEMORY_UTIL=0.5
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    VAL_BEFORE_TRAIN=True
+    TOTAL_TRAINING_STEPS=100
+    SAVE_FREQ=20
+    TEST_FREQ=20
+    LOG_VAL_GENERATIONS=5
+    ;;
   full)
-    # Full training: 4 GPU, 400 steps, ~72 hours.
+    # Full training: 4 GPU, 100 steps, ~24 hours.
+    # Submit with: sbatch --gres=gpu:h100:4 --time=24:00:00 ... full
     EXPERIMENT_NAME=crafter_grpo_3b
     TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
     VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
@@ -87,7 +114,7 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=5
     ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'smoke' or 'full'." >&2; exit 1
+    echo "Unknown MODE: ${MODE}. Use 'smoke', '1gpu', or 'full'." >&2; exit 1
     ;;
 esac
 CONCAT_MULTI_TURN=False
@@ -128,7 +155,11 @@ conda activate vagen_noflash
 
 set -u
 
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
+# Build CUDA_VISIBLE_DEVICES dynamically if not set externally
+if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
+  _cvd=""; for _i in $(seq 0 $((N_GPUS_PER_NODE - 1))); do _cvd="${_cvd:+${_cvd},}${_i}"; done
+  export CUDA_VISIBLE_DEVICES="${_cvd}"
+fi
 
 if command -v nvcc >/dev/null 2>&1; then
   export CUDA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v nvcc)")")")"
