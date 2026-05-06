@@ -52,6 +52,7 @@ class AgentData:
         traj_idx: int = 0,
         history_window_size: int = 0,
         thumbnail_scale: float = 1.0,
+        hires_window_size: int = 0,
     ):
         self.sys_msg: Optional[Dict[str, Any]] = sys_msg
         self.sys_images: Optional[List[Image.Image]] = sys_images
@@ -61,8 +62,11 @@ class AgentData:
 
         # History window config
         # history_window_size: 0=no memory, k>0=keep last k turns, -1=keep all
+        # hires_window_size:   0=all history at thumbnail_scale (default),
+        #                      k>0=most recent k turns at full-res, older at thumbnail_scale
         self.history_window_size: int = history_window_size
         self.thumbnail_scale: float = thumbnail_scale
+        self.hires_window_size: int = hires_window_size
         # Each entry: {"obs_msg": Dict, "obs_images": List[Image], "response_text": str}
         self.history_turns: List[Dict[str, Any]] = []
         # Built by _handle_pending_state, used by _handle_generating_state
@@ -112,6 +116,7 @@ class GymAgentLoop(AgentLoopBase):
         cls.response_length = config.actor_rollout_ref.rollout.response_length
         cls.history_window_size = int(config.trainer.get("history_window_size", 0))
         cls.thumbnail_scale = float(config.trainer.get("thumbnail_scale", 1.0))
+        cls.hires_window_size = int(config.trainer.get("hires_window_size", 0))
         if cls.history_window_size < -1:
             raise ValueError(
                 f"history_window_size must be >= -1, got {cls.history_window_size}. "
@@ -119,6 +124,8 @@ class GymAgentLoop(AgentLoopBase):
             )
         if cls.thumbnail_scale <= 0:
             raise ValueError(f"thumbnail_scale must be > 0, got {cls.thumbnail_scale}.")
+        if cls.hires_window_size < 0:
+            raise ValueError(f"hires_window_size must be >= 0, got {cls.hires_window_size}.")
 
 
     @rollout_trace_op
@@ -171,6 +178,7 @@ class GymAgentLoop(AgentLoopBase):
             traj_idx=kwargs["traj_idx"],
             history_window_size=self.history_window_size,
             thumbnail_scale=self.thumbnail_scale,
+            hires_window_size=self.hires_window_size,
         )
 
         # State machine: always GENERATE -> INTERACT, and decide termination inside INTERACT
@@ -192,19 +200,22 @@ class GymAgentLoop(AgentLoopBase):
 
     def _build_windowed_context(self, agent_data: AgentData):
         """
-        Build messages and images for the current turn based on history_window_size.
+        Build messages and images for the current turn.
 
-        history_window_size=0: [sys, cur_obs]              (no memory)
-        history_window_size=k: [sys, obs_{n-k}, a_{n-k}, ..., obs_{n-1}, a_{n-1}, cur_obs]
-        history_window_size=-1: [sys, all history, cur_obs] (full history in no-concat mode)
+        history_window_size=0:  [sys, cur]
+        history_window_size=k:  [sys, t-(k), ..., t-1, cur]
+        history_window_size=-1: [sys, t-0, ..., t-1, cur]   (full history)
 
-        Historical images are resized by thumbnail_scale if < 1.0.
+        Image resolution per historical turn:
+        - hires_window_size=0 (default): all history at thumbnail_scale
+        - hires_window_size=k: most recent k turns at full-res, older turns at thumbnail_scale
+
+        Current obs is always full-res.
         Returns (messages, image_data).
         """
         messages = [agent_data.sys_msg]
         image_data = list(agent_data.sys_images)
 
-        # Determine which historical turns to include
         history = agent_data.history_turns
         if agent_data.history_window_size == 0:
             window = []
@@ -213,11 +224,13 @@ class GymAgentLoop(AgentLoopBase):
         else:
             window = history[-agent_data.history_window_size:]
 
-        scale = agent_data.thumbnail_scale
-        for turn in window:
-            # Add historical obs (user message)
+        n = len(window)
+        # index from which turns are rendered at full resolution
+        hires_start = max(0, n - agent_data.hires_window_size) if agent_data.hires_window_size > 0 else n
+
+        for i, turn in enumerate(window):
             messages.append(turn["obs_msg"])
-            # Add historical images (optionally thumbnailed)
+            scale = 1.0 if i >= hires_start else agent_data.thumbnail_scale
             for img in turn["obs_images"]:
                 if scale < 1.0:
                     new_w = max(1, int(img.width * scale))
@@ -225,10 +238,8 @@ class GymAgentLoop(AgentLoopBase):
                     image_data.append(img.resize((new_w, new_h), Image.BILINEAR))
                 else:
                     image_data.append(img)
-            # Add historical assistant response
             messages.append({"role": "assistant", "content": turn["response_text"]})
 
-        # Add current obs (full resolution)
         messages.append(agent_data.cur_msg)
         image_data.extend(agent_data.cur_images)
 
