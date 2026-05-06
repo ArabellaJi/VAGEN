@@ -3,9 +3,11 @@
 # Mirrors run_vagen_train_grpo_sglang_disk.sh; adapted for Crafter.
 #
 # Usage:
-#   sbatch --gres=gpu:h100:4 examples/train/crafter/submit_grpo_qwen25vl3b.sh full    # 4 GPU, 100 steps, ~24h
-#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu   # 1 GPU, 100 steps, ~17h (less queue wait)
-#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke  # 1 GPU, 3 steps, ~30 min pipeline check
+#   sbatch --gres=gpu:h100:4 examples/train/crafter/submit_grpo_qwen25vl3b.sh full       # 4 GPU, 100 steps, ~24h
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu      # 1 GPU, 100 steps, ~6h (no history)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_mem  # 1 GPU, 100 steps, ~7h (history=3, hires=1)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke     # 1 GPU, 3 steps, pipeline check (no history)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_mem # 1 GPU, 3 steps, pipeline check (with history)
 #
 # Memory config: history_window_size=0 (no-concat, each turn independent)
 #   Prompt per turn: sys (~650) + obs image (~950) ≈ 1700 tokens  → ROLLOUT_PROMPT=3000
@@ -39,7 +41,7 @@ HF_HOME_DEFAULT=/projects/p33224/hf_cache
 # ── Mode selection ─────────────────────────────────────────────────────────────
 case "${MODE}" in
   smoke)
-    # Pipeline sanity check: 1 GPU, tiny batch, 3 steps, no val, ~30 min.
+    # Pipeline sanity check: 1 GPU, tiny batch, 3 steps, no val, no history, ~30 min.
     # Submit with: sbatch --gres=gpu:h100:1 --time=01:00:00 ... smoke
     EXPERIMENT_NAME=crafter_grpo_3b_smoke
     TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
@@ -57,6 +59,37 @@ case "${MODE}" in
     GPU_MEMORY_UTIL=0.6
     AGENT_CONFIG=agent_no_concat.yaml
     CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=0
+    HIRES_WINDOW_SIZE=0
+    THUMBNAIL_SCALE=1.0
+    VAL_BEFORE_TRAIN=False
+    TOTAL_TRAINING_STEPS=3
+    SAVE_FREQ=0
+    TEST_FREQ=0
+    LOG_VAL_GENERATIONS=0
+    ;;
+  smoke_mem)
+    # Pipeline check for memory mode: history=3, hires=1, thumbnail=0.25, ~45 min.
+    # Submit with: sbatch --gres=gpu:h100:1 --time=01:00:00 ... smoke_mem
+    EXPERIMENT_NAME=crafter_grpo_3b_smoke_mem
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=8000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=6000
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=4
+    N_GPUS_PER_NODE=1
+    GPU_MEMORY_UTIL=0.6
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=3
+    HIRES_WINDOW_SIZE=1
+    THUMBNAIL_SCALE=0.25
     VAL_BEFORE_TRAIN=False
     TOTAL_TRAINING_STEPS=3
     SAVE_FREQ=0
@@ -64,8 +97,8 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=0
     ;;
   1gpu)
-    # Single-GPU training: fewer queue wait, 100 steps, ~17 hours.
-    # Submit with: sbatch --gres=gpu:h100:1 --time=20:00:00 ... 1gpu
+    # Single-GPU training, no history, 100 steps, ~6h.
+    # Submit with: sbatch --gres=gpu:h100:1 --time=08:00:00 ... 1gpu
     EXPERIMENT_NAME=crafter_grpo_3b_1gpu
     TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
     VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
@@ -82,6 +115,37 @@ case "${MODE}" in
     GPU_MEMORY_UTIL=0.5
     AGENT_CONFIG=agent_no_concat.yaml
     CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=0
+    HIRES_WINDOW_SIZE=0
+    THUMBNAIL_SCALE=1.0
+    VAL_BEFORE_TRAIN=True
+    TOTAL_TRAINING_STEPS=100
+    SAVE_FREQ=20
+    TEST_FREQ=20
+    LOG_VAL_GENERATIONS=5
+    ;;
+  1gpu_mem)
+    # Single-GPU training with memory: history=3, hires=1, thumbnail=0.25, 100 steps, ~7h.
+    # Submit with: sbatch --gres=gpu:h100:1 --time=09:00:00 ... 1gpu_mem
+    EXPERIMENT_NAME=crafter_grpo_3b_1gpu_mem
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=8000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=6000
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=8
+    N_GPUS_PER_NODE=1
+    GPU_MEMORY_UTIL=0.5
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=3
+    HIRES_WINDOW_SIZE=1
+    THUMBNAIL_SCALE=0.25
     VAL_BEFORE_TRAIN=True
     TOTAL_TRAINING_STEPS=100
     SAVE_FREQ=20
@@ -89,7 +153,7 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=5
     ;;
   full)
-    # Full training: 4 GPU, 100 steps, ~24 hours.
+    # Full training: 4 GPU, no history, 100 steps, ~24 hours.
     # Submit with: sbatch --gres=gpu:h100:4 --time=24:00:00 ... full
     EXPERIMENT_NAME=crafter_grpo_3b
     TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
@@ -107,6 +171,9 @@ case "${MODE}" in
     GPU_MEMORY_UTIL=0.6
     AGENT_CONFIG=agent_no_concat.yaml
     CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=0
+    HIRES_WINDOW_SIZE=0
+    THUMBNAIL_SCALE=1.0
     VAL_BEFORE_TRAIN=True
     TOTAL_TRAINING_STEPS=100
     SAVE_FREQ=20
@@ -114,7 +181,7 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=5
     ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'smoke', '1gpu', or 'full'." >&2; exit 1
+    echo "Unknown MODE: ${MODE}. Use 'smoke', 'smoke_mem', '1gpu', '1gpu_mem', or 'full'." >&2; exit 1
     ;;
 esac
 CONCAT_MULTI_TURN=False
@@ -287,8 +354,9 @@ PYTHONUNBUFFERED=1 python -m vagen.main_ppo \
   actor_rollout_ref.rollout.agent.agent_loop_config_path="${PWD}/vagen/configs/${AGENT_CONFIG}" \
   actor_rollout_ref.rollout.disable_log_stats=False \
   trainer.concat_multi_turn=${CONCAT_MULTI_TURN} \
-  trainer.history_window_size=0 \
-  trainer.thumbnail_scale=1.0 \
+  trainer.history_window_size=${HISTORY_WINDOW_SIZE} \
+  trainer.hires_window_size=${HIRES_WINDOW_SIZE} \
+  trainer.thumbnail_scale=${THUMBNAIL_SCALE} \
   trainer.n_gpus_per_node=${N_GPUS_PER_NODE} \
   trainer.nnodes=1 \
   critic.enable=False \
