@@ -8,5 +8,6 @@ env_registry:
   ShellGameTouch: vagen.envs.mikasa_robo.shell_game_env.ShellGameEnv
   ShellGamePush: vagen.envs.mikasa_robo.shell_game_env.ShellGameEnv
   ShellGamePick: vagen.envs.mikasa_robo.shell_game_env.ShellGameEnv
+  Crafter: vagen.envs.crafter.crafter_env.CrafterEnv
   # Remote environment client (generic, reusable for any remote env)
   RemoteEnv: vagen.envs_remote.GymImageEnvClient
