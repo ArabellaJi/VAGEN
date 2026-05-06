@@ -3,11 +3,13 @@
 # Mirrors run_vagen_train_grpo_sglang_disk.sh; adapted for Crafter.
 #
 # Usage:
-#   sbatch --gres=gpu:h100:4 examples/train/crafter/submit_grpo_qwen25vl3b.sh full       # 4 GPU, 100 steps, ~24h
-#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu      # 1 GPU, 100 steps, ~6h (no history)
-#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_mem  # 1 GPU, 100 steps, ~7h (history=3, hires=1)
-#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke     # 1 GPU, 3 steps, pipeline check (no history)
-#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_mem # 1 GPU, 3 steps, pipeline check (with history)
+#   sbatch --gres=gpu:h100:4 examples/train/crafter/submit_grpo_qwen25vl3b.sh full         # 4 GPU, 100 steps, ~24h
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu        # 1 GPU, 100 steps, ~6h  (no history)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_mem    # 1 GPU, 100 steps, ~7h  (history=3, hires=1, thumbnail=0.25)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_hires3 # 1 GPU, 100 steps, ~8h  (history=3, all hires)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke       # 1 GPU, 3 steps, pipeline check (no history)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_mem   # 1 GPU, 3 steps, pipeline check (history=3, hires=1)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_hires3# 1 GPU, 3 steps, pipeline check (history=3, all hires)
 #
 # Memory config: history_window_size=0 (no-concat, each turn independent)
 #   Prompt per turn: sys (~650) + obs image (~950) ≈ 1700 tokens  → ROLLOUT_PROMPT=3000
@@ -69,7 +71,7 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=0
     ;;
   smoke_mem)
-    # Pipeline check for memory mode: history=3, hires=1, thumbnail=0.25, ~45 min.
+    # Pipeline check: history=3, hires=1, thumbnail=0.25. ~45 min.
     # Submit with: sbatch --gres=gpu:h100:1 --time=01:00:00 ... smoke_mem
     EXPERIMENT_NAME=crafter_grpo_3b_smoke_mem
     TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
@@ -90,6 +92,34 @@ case "${MODE}" in
     HISTORY_WINDOW_SIZE=3
     HIRES_WINDOW_SIZE=1
     THUMBNAIL_SCALE=0.25
+    VAL_BEFORE_TRAIN=False
+    TOTAL_TRAINING_STEPS=3
+    SAVE_FREQ=0
+    TEST_FREQ=0
+    LOG_VAL_GENERATIONS=0
+    ;;
+  smoke_hires3)
+    # Pipeline check: history=3, all hires. ~45 min.
+    # Submit with: sbatch --gres=gpu:h100:1 --time=01:00:00 ... smoke_hires3
+    EXPERIMENT_NAME=crafter_grpo_3b_smoke_hires3
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=8000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=6000
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=4
+    N_GPUS_PER_NODE=1
+    GPU_MEMORY_UTIL=0.6
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=3
+    HIRES_WINDOW_SIZE=3
+    THUMBNAIL_SCALE=1.0
     VAL_BEFORE_TRAIN=False
     TOTAL_TRAINING_STEPS=3
     SAVE_FREQ=0
@@ -125,7 +155,7 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=5
     ;;
   1gpu_mem)
-    # Single-GPU training with memory: history=3, hires=1, thumbnail=0.25, 100 steps, ~7h.
+    # 1 GPU, history=3, hires=1, thumbnail=0.25, 100 steps, ~7h.
     # Submit with: sbatch --gres=gpu:h100:1 --time=09:00:00 ... 1gpu_mem
     EXPERIMENT_NAME=crafter_grpo_3b_1gpu_mem
     TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
@@ -146,6 +176,34 @@ case "${MODE}" in
     HISTORY_WINDOW_SIZE=3
     HIRES_WINDOW_SIZE=1
     THUMBNAIL_SCALE=0.25
+    VAL_BEFORE_TRAIN=True
+    TOTAL_TRAINING_STEPS=100
+    SAVE_FREQ=20
+    TEST_FREQ=20
+    LOG_VAL_GENERATIONS=5
+    ;;
+  1gpu_hires3)
+    # 1 GPU, history=3, all hires, 100 steps, ~8h.
+    # Submit with: sbatch --gres=gpu:h100:1 --time=10:00:00 ... 1gpu_hires3
+    EXPERIMENT_NAME=crafter_grpo_3b_1gpu_hires3
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=8000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=512
+    MAX_BATCHED_TOKENS=6000
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=4
+    VAL_BATCH_SIZE=8
+    N_GPUS_PER_NODE=1
+    GPU_MEMORY_UTIL=0.5
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=3
+    HIRES_WINDOW_SIZE=3
+    THUMBNAIL_SCALE=1.0
     VAL_BEFORE_TRAIN=True
     TOTAL_TRAINING_STEPS=100
     SAVE_FREQ=20
@@ -181,7 +239,7 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=5
     ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'smoke', 'smoke_mem', '1gpu', '1gpu_mem', or 'full'." >&2; exit 1
+    echo "Unknown MODE: ${MODE}. Use 'smoke', 'smoke_mem', 'smoke_hires3', '1gpu', '1gpu_mem', '1gpu_hires3', or 'full'." >&2; exit 1
     ;;
 esac
 CONCAT_MULTI_TURN=False
