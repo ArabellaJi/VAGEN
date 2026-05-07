@@ -202,10 +202,11 @@ case "${MODE}" in
     RAY_OBJECT_STORE_MEMORY=8589934592   # 8 GB: reduce from 16 GB to free more RAM for batch
     ;;
   2gpu)
-    # Two-GPU training, no history, 100 steps, ~12h.
-    # 8 groups x 8 rollouts = 64 rollouts/step (8x more GRPO signal than 1gpu).
+    # Two-GPU training, no history, 100 steps, ~22h (max_turns=25).
+    # 4 groups x 8 rollouts = 32 rollouts/step; TRAIN_BATCH_SIZE halved from 8→4
+    # to fit max_turns=25 within CPU RAM budget (8x25=200 samples was OOM).
     # Includes KL regularization, entropy bonus, and variance filter to prevent collapse.
-    # Submit with: sbatch --gres=gpu:h100:2 --time=8:00:00 ... 2gpu
+    # Submit with: sbatch --gres=gpu:h100:2 --time=22:00:00 ... 2gpu
     EXPERIMENT_NAME=crafter_grpo_3b_2gpu
     TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
     VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
@@ -214,8 +215,8 @@ case "${MODE}" in
     ROLLOUT_PROMPT=3000
     ROLLOUT_RESPONSE=256
     MAX_BATCHED_TOKENS=16000
-    TRAIN_BATCH_SIZE=8
-    PPO_MINI_BATCH_SIZE=8
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
     ROLLOUT_N=8
     VAL_BATCH_SIZE=16
     N_GPUS_PER_NODE=2
@@ -236,6 +237,7 @@ case "${MODE}" in
     ENTROPY_COEFF=0.01
     FILTER_ENABLE=True
     FILTER_TOP_P=0.8
+    RAY_OBJECT_STORE_MEMORY=8589934592   # 8 GB: increased for max_turns=25 image tensors
     ;;
   2gpu_mem)
     # Two-GPU training, history=3, hires=1, thumbnail=0.25, 100 steps, ~14h.
