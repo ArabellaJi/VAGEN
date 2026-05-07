@@ -5,6 +5,8 @@
 # Usage:
 #   sbatch --gres=gpu:h100:4 examples/train/crafter/submit_grpo_qwen25vl3b.sh full         # 4 GPU, 100 steps, ~24h
 #   sbatch --gres=gpu:h100:2 --time=12:00:00 examples/train/crafter/submit_grpo_qwen25vl3b.sh 2gpu        # 2 GPU, 100 steps, ~12h (8 groups x 8 rollouts = 64/step)
+#   sbatch --gres=gpu:h100:2 --time=14:00:00 examples/train/crafter/submit_grpo_qwen25vl3b.sh 2gpu_mem    # 2 GPU, 100 steps, ~14h (history=3, hires=1, thumbnail=0.25)
+#   sbatch --gres=gpu:h100:2 --time=16:00:00 examples/train/crafter/submit_grpo_qwen25vl3b.sh 2gpu_hires3 # 2 GPU, 100 steps, ~16h (history=3, all hires)
 #   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu        # 1 GPU, 100 steps, ~6h  (no history)
 #   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_mem    # 1 GPU, 100 steps, ~7h  (history=3, hires=1, thumbnail=0.25)
 #   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_hires3 # 1 GPU, 100 steps, ~8h  (history=3, all hires)
@@ -163,6 +165,74 @@ case "${MODE}" in
     FILTER_ENABLE=True
     FILTER_TOP_P=0.8
     ;;
+  2gpu_mem)
+    # Two-GPU training, history=3, hires=1, thumbnail=0.25, 100 steps, ~14h.
+    # Submit with: sbatch --gres=gpu:h100:2 --time=14:00:00 ... 2gpu_mem
+    EXPERIMENT_NAME=crafter_grpo_3b_2gpu_mem
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=4000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=256
+    MAX_BATCHED_TOKENS=10000
+    TRAIN_BATCH_SIZE=8
+    PPO_MINI_BATCH_SIZE=8
+    ROLLOUT_N=8
+    VAL_BATCH_SIZE=16
+    N_GPUS_PER_NODE=2
+    GPU_MEMORY_UTIL=0.6
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=3
+    HIRES_WINDOW_SIZE=1
+    THUMBNAIL_SCALE=0.25
+    VAL_BEFORE_TRAIN=True
+    TOTAL_TRAINING_STEPS=100
+    SAVE_FREQ=20
+    TEST_FREQ=20
+    LOG_VAL_GENERATIONS=5
+    KL_COEF=0.01
+    USE_KL_LOSS=True
+    KL_LOSS_COEF=0.01
+    ENTROPY_COEFF=0.005
+    FILTER_ENABLE=True
+    FILTER_TOP_P=0.8
+    ;;
+  2gpu_hires3)
+    # Two-GPU training, history=3, all hires, 100 steps, ~16h.
+    # Submit with: sbatch --gres=gpu:h100:2 --time=16:00:00 ... 2gpu_hires3
+    EXPERIMENT_NAME=crafter_grpo_3b_2gpu_hires3
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=4000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=256
+    MAX_BATCHED_TOKENS=8000
+    TRAIN_BATCH_SIZE=8
+    PPO_MINI_BATCH_SIZE=8
+    ROLLOUT_N=8
+    VAL_BATCH_SIZE=16
+    N_GPUS_PER_NODE=2
+    GPU_MEMORY_UTIL=0.6
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=3
+    HIRES_WINDOW_SIZE=3
+    THUMBNAIL_SCALE=1.0
+    VAL_BEFORE_TRAIN=True
+    TOTAL_TRAINING_STEPS=100
+    SAVE_FREQ=20
+    TEST_FREQ=20
+    LOG_VAL_GENERATIONS=5
+    KL_COEF=0.01
+    USE_KL_LOSS=True
+    KL_LOSS_COEF=0.01
+    ENTROPY_COEFF=0.005
+    FILTER_ENABLE=True
+    FILTER_TOP_P=0.8
+    ;;
   1gpu)
     # Single-GPU training, no history, 100 steps, ~6h.
     # Submit with: sbatch --gres=gpu:h100:1 --time=08:00:00 ... 1gpu
@@ -200,11 +270,11 @@ case "${MODE}" in
     DATA_MAX_PROMPT=3000
     DATA_MAX_RESPONSE=8000
     ROLLOUT_PROMPT=3000
-    ROLLOUT_RESPONSE=512
+    ROLLOUT_RESPONSE=256
     MAX_BATCHED_TOKENS=6000
     TRAIN_BATCH_SIZE=2
     PPO_MINI_BATCH_SIZE=2
-    ROLLOUT_N=4
+    ROLLOUT_N=8
     VAL_BATCH_SIZE=8
     N_GPUS_PER_NODE=1
     GPU_MEMORY_UTIL=0.5
@@ -288,7 +358,7 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=5
     ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'smoke', 'smoke_mem', 'smoke_hires3', '1gpu', '1gpu_mem', '1gpu_hires3', '2gpu', or 'full'." >&2; exit 1
+    echo "Unknown MODE: ${MODE}. Use 'smoke', 'smoke_mem', 'smoke_hires3', '2gpu', '2gpu_mem', '2gpu_hires3', '1gpu', '1gpu_mem', '1gpu_hires3', or 'full'." >&2; exit 1
     ;;
 esac
 # Regularization defaults — override in case statements for specific modes (e.g. 2gpu)
