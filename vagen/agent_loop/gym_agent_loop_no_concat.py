@@ -361,7 +361,10 @@ class GymAgentLoop(AgentLoopBase):
         )
         multi_modal_data = {"image": turn_images} if turn_images else {}
         turn_metrics = info.get("metrics", {}).get("turn_metrics", {})
+        traj_metrics = info.get("metrics", {}).get("traj_metrics", {})
         actions = info.get("actions", [])
+        _unlocked = set(filter(None, info.get("achievements_unlocked", "").split("|")))
+        _TRIVIAL = {"collect_sapling", "place_plant", "wake_up"}
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids,
@@ -372,7 +375,14 @@ class GymAgentLoop(AgentLoopBase):
             num_turns=1,
             metrics=agent_data.metrics,
             extra_fields={"reward_extra_info": {
-                "traj_success": float(traj_success)},
+                "traj_success": float(traj_success),
+                "num_achievements": int(info.get("num_achievements", traj_metrics.get("num_achievements", 0)) or 0),
+                "achievements_unlocked": str(info.get("achievements_unlocked", "")),
+                "collect_wood":      float("collect_wood"       in _unlocked),
+                "place_table":       float("place_table"        in _unlocked),
+                "make_wood_pickaxe": float("make_wood_pickaxe"  in _unlocked),
+                "non_sapling_ach":   float(len(_unlocked - _TRIVIAL)),
+            },
                 "image_data": turn_images,
                 "last_turn": last_turn,
                 "group_idx": agent_data.group_idx,

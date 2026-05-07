@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
@@ -32,7 +32,8 @@ class CrafterEnvConfig:
     action_sep: str = ","
     image_placeholder: str = "<image>"
     prompt_format: str = "free_think"     # "free_think" or "wm"
-    achievement_reward: float = 1.0       # reward per new achievement unlocked
+    achievement_reward: float = 1.0       # reward per new achievement unlocked (default)
+    per_achievement_reward: Dict[str, float] = field(default_factory=dict)  # per-name overrides
     format_reward: float = 0.0            # bonus when format is correct and action valid
     format_penalty: float = 0.0           # penalty when no valid action parsed
     use_example_in_sys_prompt: bool = True
@@ -135,7 +136,9 @@ class CrafterEnv(GymImageEnv):
             for ach_name, unlocked in step_info.get("achievements", {}).items():
                 if unlocked and ach_name not in self._unlocked:
                     self._unlocked.add(ach_name)
-                    reward += self.config.achievement_reward
+                    reward += self.config.per_achievement_reward.get(
+                        ach_name, self.config.achievement_reward
+                    )
 
             if step_done:
                 done = True
@@ -149,6 +152,8 @@ class CrafterEnv(GymImageEnv):
         metrics["traj_metrics"]["num_achievements"] = len(self._unlocked)
         info["metrics"] = metrics
         info["success"] = len(self._unlocked) > 0
+        info["num_achievements"] = len(self._unlocked)
+        info["achievements_unlocked"] = "|".join(sorted(self._unlocked))
         self.total_reward += reward
 
         return await self._render_async(obs_array, init_obs=False), reward, done, info
