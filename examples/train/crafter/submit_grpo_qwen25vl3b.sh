@@ -218,6 +218,12 @@ case "${MODE}" in
     SAVE_FREQ=20
     TEST_FREQ=20
     LOG_VAL_GENERATIONS=5
+    KL_COEF=0.01
+    USE_KL_LOSS=True
+    KL_LOSS_COEF=0.01
+    ENTROPY_COEFF=0.005
+    FILTER_ENABLE=True
+    FILTER_TOP_P=0.8
     ;;
   1gpu_hires3)
     # 1 GPU, history=3, all hires, 100 steps, ~8h.
@@ -246,6 +252,12 @@ case "${MODE}" in
     SAVE_FREQ=20
     TEST_FREQ=20
     LOG_VAL_GENERATIONS=5
+    KL_COEF=0.01
+    USE_KL_LOSS=True
+    KL_LOSS_COEF=0.01
+    ENTROPY_COEFF=0.005
+    FILTER_ENABLE=True
+    FILTER_TOP_P=0.8
     ;;
   full)
     # Full training: 4 GPU, no history, 100 steps, ~24 hours.
