@@ -10,9 +10,11 @@
 #   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu        # 1 GPU, 100 steps, ~6h  (no history)
 #   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_mem    # 1 GPU, 100 steps, ~7h  (history=3, hires=1, thumbnail=0.25)
 #   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_hires3 # 1 GPU, 100 steps, ~8h  (history=3, all hires)
-#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke       # 1 GPU, 3 steps, pipeline check (no history)
-#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_mem   # 1 GPU, 3 steps, pipeline check (history=3, hires=1)
-#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_hires3# 1 GPU, 3 steps, pipeline check (history=3, all hires)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke             # 1 GPU, 3 steps, pipeline check (no history)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_mem         # 1 GPU, 3 steps, pipeline check (history=3, hires=1)
+#   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_hires3      # 1 GPU, 3 steps, pipeline check (history=3, all hires)
+#   sbatch --gres=gpu:h100:2 --time=01:00:00 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_2gpu_mem    # 2 GPU, 3 steps, memory check for 2gpu_mem config
+#   sbatch --gres=gpu:h100:2 --time=01:00:00 examples/train/crafter/submit_grpo_qwen25vl3b.sh smoke_2gpu_hires3 # 2 GPU, 3 steps, memory check for 2gpu_hires3 config
 #
 # Memory config: history_window_size=0 (no-concat, each turn independent)
 #   Prompt per turn: sys (~650) + obs image (~950) ≈ 1700 tokens  → ROLLOUT_PROMPT=3000
@@ -128,6 +130,76 @@ case "${MODE}" in
     SAVE_FREQ=0
     TEST_FREQ=0
     LOG_VAL_GENERATIONS=0
+    ;;
+  smoke_2gpu_mem)
+    # Memory check for 2gpu_mem: exact same config, 3 steps only. ~20 min.
+    # Submit with: sbatch --gres=gpu:h100:2 --time=01:00:00 ... smoke_2gpu_mem
+    EXPERIMENT_NAME=crafter_grpo_3b_smoke_2gpu_mem
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=4000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=256
+    MAX_BATCHED_TOKENS=10000
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
+    ROLLOUT_N=8
+    VAL_BATCH_SIZE=16
+    N_GPUS_PER_NODE=2
+    GPU_MEMORY_UTIL=0.6
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=3
+    HIRES_WINDOW_SIZE=1
+    THUMBNAIL_SCALE=0.25
+    VAL_BEFORE_TRAIN=False
+    TOTAL_TRAINING_STEPS=3
+    SAVE_FREQ=0
+    TEST_FREQ=0
+    LOG_VAL_GENERATIONS=0
+    KL_COEF=0.01
+    USE_KL_LOSS=True
+    KL_LOSS_COEF=0.01
+    ENTROPY_COEFF=0.005
+    FILTER_ENABLE=True
+    FILTER_TOP_P=0.8
+    RAY_OBJECT_STORE_MEMORY=8589934592   # 8 GB
+    ;;
+  smoke_2gpu_hires3)
+    # Memory check for 2gpu_hires3: exact same config, 3 steps only. ~20 min.
+    # Submit with: sbatch --gres=gpu:h100:2 --time=01:00:00 ... smoke_2gpu_hires3
+    EXPERIMENT_NAME=crafter_grpo_3b_smoke_2gpu_hires3
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=4000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=256
+    MAX_BATCHED_TOKENS=8000
+    TRAIN_BATCH_SIZE=2
+    PPO_MINI_BATCH_SIZE=2
+    ROLLOUT_N=8
+    VAL_BATCH_SIZE=16
+    N_GPUS_PER_NODE=2
+    GPU_MEMORY_UTIL=0.6
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=3
+    HIRES_WINDOW_SIZE=3
+    THUMBNAIL_SCALE=1.0
+    VAL_BEFORE_TRAIN=False
+    TOTAL_TRAINING_STEPS=3
+    SAVE_FREQ=0
+    TEST_FREQ=0
+    LOG_VAL_GENERATIONS=0
+    KL_COEF=0.01
+    USE_KL_LOSS=True
+    KL_LOSS_COEF=0.01
+    ENTROPY_COEFF=0.005
+    FILTER_ENABLE=True
+    FILTER_TOP_P=0.8
+    RAY_OBJECT_STORE_MEMORY=17179869184  # 16 GB
     ;;
   2gpu)
     # Two-GPU training, no history, 100 steps, ~12h.
@@ -362,7 +434,7 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=5
     ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'smoke', 'smoke_mem', 'smoke_hires3', '2gpu', '2gpu_mem', '2gpu_hires3', '1gpu', '1gpu_mem', '1gpu_hires3', or 'full'." >&2; exit 1
+    echo "Unknown MODE: ${MODE}. Use 'smoke', 'smoke_mem', 'smoke_hires3', 'smoke_2gpu_mem', 'smoke_2gpu_hires3', '2gpu', '2gpu_mem', '2gpu_hires3', '1gpu', '1gpu_mem', '1gpu_hires3', or 'full'." >&2; exit 1
     ;;
 esac
 # Regularization defaults — override in case statements for specific modes (e.g. 2gpu)
