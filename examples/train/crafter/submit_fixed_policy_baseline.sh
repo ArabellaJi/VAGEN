@@ -6,6 +6,7 @@
 #   sbatch -A p32139 --time=01:00:00 examples/train/crafter/submit_fixed_policy_baseline.sh do,move_left
 
 #SBATCH --job-name=crafter_fixed_policy
+#SBATCH --partition=gengpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
