@@ -233,7 +233,7 @@ case "${MODE}" in
     KL_COEF=0.01
     USE_KL_LOSS=True
     KL_LOSS_COEF=0.01
-    ENTROPY_COEFF=0.005
+    ENTROPY_COEFF=0.01
     FILTER_ENABLE=True
     FILTER_TOP_P=0.8
     ;;

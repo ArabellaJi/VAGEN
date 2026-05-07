@@ -3,11 +3,19 @@ envs:
     n_envs: 256
     data_source: crafter
     seed: [10001, 10256, 1]
-    max_turns: 15
+    max_turns: 25
     response_length_per_turn: 512
     config:
       render_mode: vision
       render_scale: 4
       prompt_format: free_think
       achievement_reward: 1.0
+      per_achievement_reward:
+        collect_sapling: 0.05
+        place_plant: 0.05
+        eat_cow: 0.1
+        collect_wood: 1.0
+        place_table: 1.5
+        make_wood_pickaxe: 2.0
+        collect_stone: 2.0
       format_reward: 0.0
