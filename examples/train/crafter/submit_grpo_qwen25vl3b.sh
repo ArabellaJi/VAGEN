@@ -167,6 +167,7 @@ case "${MODE}" in
     ;;
   2gpu_mem)
     # Two-GPU training, history=3, hires=1, thumbnail=0.25, 100 steps, ~14h.
+    # TRAIN_BATCH_SIZE=4 (not 8) because hires+history image tensors are large.
     # Submit with: sbatch --gres=gpu:h100:2 --time=14:00:00 ... 2gpu_mem
     EXPERIMENT_NAME=crafter_grpo_3b_2gpu_mem
     TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
@@ -176,8 +177,8 @@ case "${MODE}" in
     ROLLOUT_PROMPT=3000
     ROLLOUT_RESPONSE=256
     MAX_BATCHED_TOKENS=10000
-    TRAIN_BATCH_SIZE=8
-    PPO_MINI_BATCH_SIZE=8
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
     ROLLOUT_N=8
     VAL_BATCH_SIZE=16
     N_GPUS_PER_NODE=2
@@ -198,9 +199,11 @@ case "${MODE}" in
     ENTROPY_COEFF=0.005
     FILTER_ENABLE=True
     FILTER_TOP_P=0.8
+    RAY_OBJECT_STORE_MEMORY=8589934592   # 8 GB: larger for hires image tensors
     ;;
   2gpu_hires3)
     # Two-GPU training, history=3, all hires, 100 steps, ~16h.
+    # TRAIN_BATCH_SIZE=2 (not 8): full-res images × history=3 are too large for bigger batches.
     # Submit with: sbatch --gres=gpu:h100:2 --time=16:00:00 ... 2gpu_hires3
     EXPERIMENT_NAME=crafter_grpo_3b_2gpu_hires3
     TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
@@ -210,8 +213,8 @@ case "${MODE}" in
     ROLLOUT_PROMPT=3000
     ROLLOUT_RESPONSE=256
     MAX_BATCHED_TOKENS=8000
-    TRAIN_BATCH_SIZE=8
-    PPO_MINI_BATCH_SIZE=8
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
     ROLLOUT_N=8
     VAL_BATCH_SIZE=16
     N_GPUS_PER_NODE=2
@@ -232,6 +235,7 @@ case "${MODE}" in
     ENTROPY_COEFF=0.005
     FILTER_ENABLE=True
     FILTER_TOP_P=0.8
+    RAY_OBJECT_STORE_MEMORY=17179869184  # 16 GB: full-res history images are very large
     ;;
   1gpu)
     # Single-GPU training, no history, 100 steps, ~6h.
@@ -362,6 +366,7 @@ case "${MODE}" in
     ;;
 esac
 # Regularization defaults — override in case statements for specific modes (e.g. 2gpu)
+RAY_OBJECT_STORE_MEMORY="${RAY_OBJECT_STORE_MEMORY:-4294967296}"  # 4 GB default
 KL_COEF="${KL_COEF:-0.0}"
 USE_KL_LOSS="${USE_KL_LOSS:-False}"
 KL_LOSS_COEF="${KL_LOSS_COEF:-0.0}"
@@ -546,7 +551,7 @@ PYTHONUNBUFFERED=1 python -m vagen.main_ppo \
   critic.enable=False \
   +ray_kwargs.ray_init.include_dashboard=False \
   +ray_kwargs.ray_init.num_cpus=${RAY_NUM_CPUS} \
-  +ray_kwargs.ray_init.object_store_memory=4294967296 \
+  +ray_kwargs.ray_init.object_store_memory=${RAY_OBJECT_STORE_MEMORY} \
   "+ray_kwargs.ray_init._temp_dir='${RAY_TMPDIR}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_HOME='${CUDA_HOME}'" \
   "+ray_kwargs.ray_init.runtime_env.env_vars.CUDA_PATH='${CUDA_PATH}'" \
