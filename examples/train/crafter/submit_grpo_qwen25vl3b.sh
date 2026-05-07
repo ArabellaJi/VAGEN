@@ -4,6 +4,7 @@
 #
 # Usage:
 #   sbatch --gres=gpu:h100:4 examples/train/crafter/submit_grpo_qwen25vl3b.sh full         # 4 GPU, 100 steps, ~24h
+#   sbatch --gres=gpu:h100:2 --time=12:00:00 examples/train/crafter/submit_grpo_qwen25vl3b.sh 2gpu        # 2 GPU, 100 steps, ~12h (8 groups x 8 rollouts = 64/step)
 #   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu        # 1 GPU, 100 steps, ~6h  (no history)
 #   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_mem    # 1 GPU, 100 steps, ~7h  (history=3, hires=1, thumbnail=0.25)
 #   sbatch --gres=gpu:h100:1 examples/train/crafter/submit_grpo_qwen25vl3b.sh 1gpu_hires3 # 1 GPU, 100 steps, ~8h  (history=3, all hires)
@@ -126,6 +127,42 @@ case "${MODE}" in
     TEST_FREQ=0
     LOG_VAL_GENERATIONS=0
     ;;
+  2gpu)
+    # Two-GPU training, no history, 100 steps, ~12h.
+    # 8 groups x 8 rollouts = 64 rollouts/step (8x more GRPO signal than 1gpu).
+    # Includes KL regularization, entropy bonus, and variance filter to prevent collapse.
+    # Submit with: sbatch --gres=gpu:h100:2 --time=8:00:00 ... 2gpu
+    EXPERIMENT_NAME=crafter_grpo_3b_2gpu
+    TRAIN_FILE=examples/train/crafter/train_crafter_vision.yaml
+    VAL_FILE=examples/train/crafter/val_crafter_vision.yaml
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=4000
+    ROLLOUT_PROMPT=3000
+    ROLLOUT_RESPONSE=256
+    MAX_BATCHED_TOKENS=16000
+    TRAIN_BATCH_SIZE=8
+    PPO_MINI_BATCH_SIZE=8
+    ROLLOUT_N=8
+    VAL_BATCH_SIZE=16
+    N_GPUS_PER_NODE=2
+    GPU_MEMORY_UTIL=0.6
+    AGENT_CONFIG=agent_no_concat.yaml
+    CONCAT_MULTI_TURN=False
+    HISTORY_WINDOW_SIZE=0
+    HIRES_WINDOW_SIZE=0
+    THUMBNAIL_SCALE=1.0
+    VAL_BEFORE_TRAIN=True
+    TOTAL_TRAINING_STEPS=100
+    SAVE_FREQ=20
+    TEST_FREQ=20
+    LOG_VAL_GENERATIONS=5
+    KL_COEF=0.01
+    USE_KL_LOSS=True
+    KL_LOSS_COEF=0.01
+    ENTROPY_COEFF=0.005
+    FILTER_ENABLE=True
+    FILTER_TOP_P=0.8
+    ;;
   1gpu)
     # Single-GPU training, no history, 100 steps, ~6h.
     # Submit with: sbatch --gres=gpu:h100:1 --time=08:00:00 ... 1gpu
@@ -239,12 +276,19 @@ case "${MODE}" in
     LOG_VAL_GENERATIONS=5
     ;;
   *)
-    echo "Unknown MODE: ${MODE}. Use 'smoke', 'smoke_mem', 'smoke_hires3', '1gpu', '1gpu_mem', '1gpu_hires3', or 'full'." >&2; exit 1
+    echo "Unknown MODE: ${MODE}. Use 'smoke', 'smoke_mem', 'smoke_hires3', '1gpu', '1gpu_mem', '1gpu_hires3', '2gpu', or 'full'." >&2; exit 1
     ;;
 esac
+# Regularization defaults — override in case statements for specific modes (e.g. 2gpu)
+KL_COEF="${KL_COEF:-0.0}"
+USE_KL_LOSS="${USE_KL_LOSS:-False}"
+KL_LOSS_COEF="${KL_LOSS_COEF:-0.0}"
+ENTROPY_COEFF="${ENTROPY_COEFF:-0.0}"
+FILTER_ENABLE="${FILTER_ENABLE:-False}"
+FILTER_TOP_P="${FILTER_TOP_P:-0.8}"
 CONCAT_MULTI_TURN=False
 ADV_ESTIMATOR=grpo
-MAX_AGENT_NUM_WORKERS=4
+MAX_AGENT_NUM_WORKERS=$((N_GPUS_PER_NODE * 4))
 VAGEN_SGLANG_INIT_TIMEOUT=1800
 RAY_NUM_CPUS=$((N_GPUS_PER_NODE * 8))
 
@@ -374,17 +418,17 @@ PYTHONUNBUFFERED=1 python -m vagen.main_ppo \
   data.max_response_length=${DATA_MAX_RESPONSE} \
   algorithm.adv_estimator=${ADV_ESTIMATOR} \
   algorithm.norm_adv_by_std_in_grpo=True \
-  algorithm.kl_ctrl.kl_coef=0.0 \
+  algorithm.kl_ctrl.kl_coef=${KL_COEF} \
   actor_rollout_ref.model.path="${REF_MODEL_PATH}" \
   ++actor_rollout_ref.model.override_config.attn_implementation=eager \
   actor_rollout_ref.model.use_remove_padding=False \
   actor_rollout_ref.model.use_fused_kernels=False \
   actor_rollout_ref.model.enable_gradient_checkpointing=True \
   actor_rollout_ref.actor.optim.lr=1e-6 \
-  actor_rollout_ref.actor.use_kl_loss=False \
-  actor_rollout_ref.actor.kl_loss_coef=0.0 \
+  actor_rollout_ref.actor.use_kl_loss=${USE_KL_LOSS} \
+  actor_rollout_ref.actor.kl_loss_coef=${KL_LOSS_COEF} \
   actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-  actor_rollout_ref.actor.entropy_coeff=0.0 \
+  actor_rollout_ref.actor.entropy_coeff=${ENTROPY_COEFF} \
   actor_rollout_ref.actor.ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE} \
   actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
   actor_rollout_ref.actor.checkpoint.save_contents=['hf_model'] \
@@ -458,4 +502,7 @@ PYTHONUNBUFFERED=1 python -m vagen.main_ppo \
   trainer.default_local_dir="${RUN_ROOT}/checkpoints/${EXPERIMENT_NAME}" \
   trainer.validation_data_dir="${RUN_ROOT}/validation/${EXPERIMENT_NAME}" \
   trainer.rollout_data_dir="${RUN_ROOT}/rollout/${EXPERIMENT_NAME}" \
-  trainer.log_val_generations=${LOG_VAL_GENERATIONS}
+  trainer.log_val_generations=${LOG_VAL_GENERATIONS} \
+  filter.enable=${FILTER_ENABLE} \
+  filter.name=reward_variance_top_p \
+  "filter.filter_kwargs.top_p=${FILTER_TOP_P}"
