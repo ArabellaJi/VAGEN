@@ -14,9 +14,9 @@ envs:
         collect_sapling: 0.05
         place_plant: 0.05
         eat_cow: 0.1
-        collect_wood: 1.0
+        collect_wood: 1.5
         place_table: 1.5
         make_wood_pickaxe: 2.0
         collect_stone: 2.0
       format_reward: 0.01
-      format_penalty: -0.2
+      format_penalty: -0.5

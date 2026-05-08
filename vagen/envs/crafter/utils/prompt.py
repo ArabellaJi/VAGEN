@@ -24,9 +24,12 @@ Action guide:
   make_*    — craft a tool or weapon (requires a workbench nearby and materials)
   noop      — do nothing
 
+Exploration: You start at a random location. MOVE AROUND to find trees, water, and other resources before trying to craft anything. Use move_left/right/up/down to explore.
+
 Progression tips:
-  1. Collect wood: face a tree, use "do"
-  2. Place a table: place_table (needs 2 wood)
+  0. Explore: move around to find a tree (brown trunk visible in image)
+  1. Collect wood: face a tree, use "do" (need at least 2 wood before crafting)
+  2. Place a table: place_table (needs 2 wood in inventory)
   3. Craft a pickaxe: stand next to table, make_wood_pickaxe (needs 2 wood)
   4. Mine stone/coal/iron with pickaxe: face the block, use "do"
   5. Build a furnace to smelt iron: place_furnace (needs 4 stone)
@@ -44,8 +47,13 @@ Decide your next action."""
 Decide your next action."""
 
 
-def action_template(valid_actions: list, img_str: str, status_text: str) -> str:
-    action_str = valid_actions if valid_actions else "none"
+def action_template(valid_actions: list, img_str: str, status_text: str, attempted_actions: list = None) -> str:
+    if valid_actions:
+        action_str = f"{valid_actions} (executed)"
+    elif attempted_actions:
+        action_str = f"none ('{', '.join(attempted_actions)}' is not a valid action name — use one from the list)"
+    else:
+        action_str = "none (no action parsed — check your response format)"
     if status_text:
         return f"""Executed action: {action_str}
 {status_text}
@@ -73,7 +81,9 @@ def format_prompt(
 def _free_think_format(max_actions_per_step: int, action_sep: str, add_example: bool) -> str:
     base = f"""You may take up to {max_actions_per_step} action(s) per turn, separated by "{action_sep}".
 Respond in this format:
-<think>...</think><answer>...</answer>"""
+<think>[your reasoning]</think><answer>[action_name]</answer>
+
+IMPORTANT: <answer> must contain exactly one valid action name from the list above (e.g. move_right, do, sleep). Do NOT output "..." or any placeholder — invalid actions are penalized."""
 
     if not add_example:
         return base

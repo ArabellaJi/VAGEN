@@ -57,6 +57,7 @@ class CrafterEnv(GymImageEnv):
         self.env: Optional[crafter.Env] = None
         self.total_reward: float = 0.0
         self.valid_actions: List[str] = []
+        self._attempted_actions: List[str] = []
         self._unlocked: Set[str] = set()
         self._last_info: Dict[str, Any] = {}
         self._last_obs_array: Optional[np.ndarray] = None
@@ -81,6 +82,7 @@ class CrafterEnv(GymImageEnv):
         self.env, obs_array = await asyncio.to_thread(_make_and_reset)
         self.total_reward = 0.0
         self.valid_actions = []
+        self._attempted_actions = []
         self._unlocked = set()
         self._last_info = {}
         self._last_obs_array = obs_array
@@ -102,6 +104,7 @@ class CrafterEnv(GymImageEnv):
         done = False
         info: Dict[str, Any] = {}
         self.valid_actions = []
+        self._attempted_actions = parsed.get("actions", [])
         info.update(parsed)
 
         action_list: List[str] = parsed.get("actions", [])
@@ -197,7 +200,8 @@ class CrafterEnv(GymImageEnv):
         if init_obs:
             obs_str = init_observation_template(img_str, status_text)
         else:
-            obs_str = action_template(self.valid_actions, img_str, status_text)
+            attempted = self._attempted_actions if not self.valid_actions else None
+            obs_str = action_template(self.valid_actions, img_str, status_text, attempted_actions=attempted)
 
         obs: Dict[str, Any] = {"obs_str": obs_str}
         if multi_modal_input is not None:
