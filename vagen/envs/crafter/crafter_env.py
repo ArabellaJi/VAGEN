@@ -17,6 +17,7 @@ from vagen.envs.crafter.utils.prompt import (
 from vagen.envs.crafter.utils.utils import (
     ACTION_LOOKUP,
     format_status_text,
+    format_nearby_tiles,
     numpy_to_pil,
     parse_response,
 )
@@ -61,6 +62,7 @@ class CrafterEnv(GymImageEnv):
         self._unlocked: Set[str] = set()
         self._last_info: Dict[str, Any] = {}
         self._last_obs_array: Optional[np.ndarray] = None
+        self._facing: Optional[str] = None  # last move direction
 
     # ------------------------------------------------------------------
     # GymImageEnv abstract methods
@@ -86,6 +88,7 @@ class CrafterEnv(GymImageEnv):
         self._unlocked = set()
         self._last_info = {}
         self._last_obs_array = obs_array
+        self._facing = None
 
         return await self._render_async(obs_array, init_obs=True), {}
 
@@ -121,10 +124,18 @@ class CrafterEnv(GymImageEnv):
 
         obs_array = self._last_obs_array
 
+        _FACING_MAP = {
+            "move_up": "North", "move_down": "South",
+            "move_left": "West", "move_right": "East",
+        }
+
         for action in action_list:
             if action not in ACTION_LOOKUP:
                 metrics["turn_metrics"]["action_is_valid"] = False
                 break
+
+            if action in _FACING_MAP:
+                self._facing = _FACING_MAP[action]
 
             action_int = ACTION_LOOKUP[action]
             obs_array, _, step_done, step_info = await asyncio.to_thread(
@@ -178,6 +189,9 @@ class CrafterEnv(GymImageEnv):
         self, obs_array: Optional[np.ndarray], init_obs: bool
     ) -> Dict[str, Any]:
         status_text = format_status_text(self._last_info, self._unlocked)
+        nearby = format_nearby_tiles(self._last_info, facing=self._facing)
+        if nearby:
+            status_text = status_text + "\n" + nearby if status_text else nearby
         multi_modal_input = None
 
         if self.config.render_mode == "vision":

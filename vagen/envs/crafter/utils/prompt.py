@@ -80,20 +80,13 @@ def format_prompt(
 
 def _free_think_format(max_actions_per_step: int, action_sep: str, add_example: bool) -> str:
     base = f"""You may take up to {max_actions_per_step} action(s) per turn, separated by "{action_sep}".
-Respond in this format:
-<think>[your reasoning]</think><answer>[action_name]</answer>
-
-IMPORTANT: <answer> must contain exactly one valid action name from the list above (e.g. move_right, do, sleep). Do NOT output "..." or any placeholder — invalid actions are penalized."""
-
-    if not add_example:
-        return base
-
-    example = """
+Always respond with a <think> block followed by an <answer> block. The <answer> must contain exactly one valid action name from the list above. Invalid action names are penalized.
 
 Example:
 <think>My energy is 2/9 which is critically low. I should sleep to recover before I can move around again.</think>
 <answer>sleep</answer>"""
-    return base + example
+
+    return base
 
 
 def _wm_format(max_actions_per_step: int, action_sep: str, add_example: bool) -> str:

@@ -68,7 +68,31 @@ def _format_action(action: str) -> str:
     return f"<think>Fixed policy baseline.</think><answer>{action}</answer>"
 
 
-async def _run_one(seed: int, env_config: dict[str, Any], max_turns: int, actions: list[str]) -> dict[str, Any]:
+def _debug_semantic(info: dict[str, Any], turn: int) -> None:
+    """Print semantic map diagnostics for coordinate system verification."""
+    from vagen.envs.crafter.utils.utils import MATERIAL_NAMES, OBJECT_NAMES
+    sem = info.get("semantic")
+    pos = info.get("player_pos")
+    if sem is None or pos is None:
+        print(f"  [turn {turn}] semantic or player_pos missing")
+        return
+
+    def tile_name(tid: int) -> str:
+        return MATERIAL_NAMES.get(tid) or OBJECT_NAMES.get(tid, f"id={tid}")
+
+    px, py = int(pos[0]), int(pos[1])
+    h, w = sem.shape
+    print(f"  [turn {turn}] semantic shape={sem.shape}  player_pos={list(pos)}  => px={px} py={py}")
+    print(f"    tile at [py,px]=semantic[{py},{px}] => {tile_name(int(sem[py, px]))}  (expect: player=12)")
+    for label, dy, dx in [("North(move_up)", -1, 0), ("South(move_down)", +1, 0),
+                           ("West(move_left)", 0, -1), ("East(move_right)", 0, +1)]:
+        ny, nx = py + dy, px + dx
+        if 0 <= ny < h and 0 <= nx < w:
+            print(f"    {label}: semantic[{ny},{nx}] => {tile_name(int(sem[ny, nx]))}")
+
+
+async def _run_one(seed: int, env_config: dict[str, Any], max_turns: int, actions: list[str],
+                   debug_turns: int = 3) -> dict[str, Any]:
     from vagen.envs.crafter.crafter_env import CrafterEnv
 
     env = CrafterEnv(env_config=env_config)
@@ -91,6 +115,10 @@ async def _run_one(seed: int, env_config: dict[str, Any], max_turns: int, action
                 action_trace.extend(str(a) for a in parsed_actions)
             else:
                 none_turns += 1
+            # Print semantic diagnostics for the first few turns of the first seed only
+            if debug_turns > 0 and turn < debug_turns:
+                print(f"\n--- seed={seed} action={action} reward={reward:.2f} ---")
+                _debug_semantic(info, turn)
             if done:
                 break
     finally:
@@ -125,11 +153,13 @@ async def _run_all(
 ) -> list[dict[str, Any]]:
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def guarded(seed: int) -> dict[str, Any]:
+    async def guarded(seed: int, is_first: bool) -> dict[str, Any]:
         async with semaphore:
-            return await _run_one(seed, env_config, max_turns, actions)
+            # Only print semantic diagnostics for the first seed
+            return await _run_one(seed, env_config, max_turns, actions,
+                                  debug_turns=3 if is_first else 0)
 
-    return await asyncio.gather(*(guarded(seed) for seed in seeds))
+    return await asyncio.gather(*(guarded(seed, i == 0) for i, seed in enumerate(seeds)))
 
 
 def _summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
