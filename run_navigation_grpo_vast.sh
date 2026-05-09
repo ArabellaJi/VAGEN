@@ -367,6 +367,8 @@ NAV_VAL_BEFORE_TRAIN="${NAV_VAL_BEFORE_TRAIN:-True}"
 NAV_TEST_FREQ="${NAV_TEST_FREQ:-10}"
 NAV_SAVE_FREQ="${NAV_SAVE_FREQ:-20}"
 NAV_LOG_VAL_GENERATIONS="${NAV_LOG_VAL_GENERATIONS:-10}"
+NAV_SKIP_SPECIAL_TOKENS_VAL="${NAV_SKIP_SPECIAL_TOKENS_VAL:-False}"
+NAV_SKIP_SPECIAL_TOKENS_TRAIN="${NAV_SKIP_SPECIAL_TOKENS_TRAIN:-False}"
 NAV_LENIENT_ACTION_PARSE="${NAV_LENIENT_ACTION_PARSE:-false}"
 NAV_EXAMPLE_COUNT="${NAV_EXAMPLE_COUNT:-}"
 NAV_ENV_RETRIES="${NAV_ENV_RETRIES:-}"
@@ -587,6 +589,8 @@ echo "VAL_BEFORE_TRAIN:   ${NAV_VAL_BEFORE_TRAIN}"
 echo "TEST_FREQ:          ${NAV_TEST_FREQ}"
 echo "SAVE_FREQ:          ${NAV_SAVE_FREQ}"
 echo "LOG_VAL_GENS:       ${NAV_LOG_VAL_GENERATIONS}"
+echo "SKIP_SPECIAL_VAL:   ${NAV_SKIP_SPECIAL_TOKENS_VAL}"
+echo "SKIP_SPECIAL_TRAIN: ${NAV_SKIP_SPECIAL_TOKENS_TRAIN}"
 echo "LENIENT_ACTION:     ${NAV_LENIENT_ACTION_PARSE}"
 echo "EXAMPLE_COUNT:      ${NAV_EXAMPLE_COUNT:-unchanged}"
 echo "ENV_RETRIES:        ${NAV_ENV_RETRIES:-unchanged}"
@@ -775,6 +779,8 @@ PYTHONUNBUFFERED=1 \
     trainer.save_freq="${NAV_SAVE_FREQ}" \
     trainer.test_freq="${NAV_TEST_FREQ}" \
     trainer.log_val_generations="${NAV_LOG_VAL_GENERATIONS}" \
+    trainer.skip_special_tokens_val="${NAV_SKIP_SPECIAL_TOKENS_VAL}" \
+    trainer.skip_special_tokens_train="${NAV_SKIP_SPECIAL_TOKENS_TRAIN}" \
     trainer.project_name="nav_window_ablation" \
     trainer.experiment_name="${EXPERIMENT_NAME}" \
     trainer.default_local_dir="${EXPERIMENT_DIR}" \

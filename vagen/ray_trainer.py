@@ -605,20 +605,21 @@ class RayPPOTrainer:
             inputs = batch.batch["prompts"]
             outputs = batch.batch["responses"]
             
-            # remove pad tokens for logging (keeps other special tokens like <|endoftext|>
-            # visible so we can spot degenerate model outputs)
+            # Remove pad tokens for logging. By default we keep other special
+            # tokens visible so degenerate model outputs are easy to spot.
             pad_token_id = self.tokenizer.pad_token_id
             skip_pad_tokens = self.config.trainer.get("skip_pad_tokens", True)
+            skip_special_tokens = self.config.trainer.get("skip_special_tokens_train", False)
             if skip_pad_tokens:
                 inputs = self.tokenizer.batch_decode(
                     [s[-l:] if l else [] for s, l in zip(inputs.tolist(),  (inputs  != pad_token_id).sum(1).tolist())],
-                    skip_special_tokens=False)
+                    skip_special_tokens=skip_special_tokens)
                 outputs = self.tokenizer.batch_decode(
                     [s[:l]  if l else [] for s, l in zip(outputs.tolist(), (outputs != pad_token_id).sum(1).tolist())],
-                    skip_special_tokens=False)
+                    skip_special_tokens=skip_special_tokens)
             else:
-                inputs = self.tokenizer.batch_decode(inputs.tolist(), skip_special_tokens=False)
-                outputs = self.tokenizer.batch_decode(outputs.tolist(), skip_special_tokens=False)
+                inputs = self.tokenizer.batch_decode(inputs.tolist(), skip_special_tokens=skip_special_tokens)
+                outputs = self.tokenizer.batch_decode(outputs.tolist(), skip_special_tokens=skip_special_tokens)
 
             if self.config.trainer.get("replace_image_tokens_for_logging", False):
                 inputs = replace_image_tokens_for_logging(inputs, processor=self.processor, tokenizer=self.tokenizer)
@@ -909,16 +910,17 @@ class RayPPOTrainer:
             
             inputs = test_batch.batch["prompts"]
             outputs = test_batch.batch["responses"]
+            skip_special_tokens = self.config.trainer.get("skip_special_tokens_val", False)
             if skip_pad_tokens:
                 inputs = self.tokenizer.batch_decode(
                     [s[-l:] if l else [] for s, l in zip(inputs.tolist(),  (inputs  != pad_token_id).sum(1).tolist())],
-                    skip_special_tokens=False)
+                    skip_special_tokens=skip_special_tokens)
                 outputs = self.tokenizer.batch_decode(
                     [s[:l]  if l else [] for s, l in zip(outputs.tolist(), (outputs != pad_token_id).sum(1).tolist())],
-                    skip_special_tokens=False)
+                    skip_special_tokens=skip_special_tokens)
             else:
-                inputs = self.tokenizer.batch_decode(inputs.tolist(), skip_special_tokens=False)
-                outputs = self.tokenizer.batch_decode(outputs.tolist(), skip_special_tokens=False)
+                inputs = self.tokenizer.batch_decode(inputs.tolist(), skip_special_tokens=skip_special_tokens)
+                outputs = self.tokenizer.batch_decode(outputs.tolist(), skip_special_tokens=skip_special_tokens)
            
             sample_inputs.extend(inputs)
             sample_outputs.extend(outputs)
