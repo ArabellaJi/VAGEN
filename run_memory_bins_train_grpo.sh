@@ -10,23 +10,24 @@
 #   4gpu:          4 GPUs, window3_thumb scaled up — 256 traj/step
 #
 # Token budget reference (Qwen2.5-VL, 14px patch, 2x2 merge):
-#   512x512 full image  →  ~325 visual tokens
-#   128x128 thumbnail   →  ~20  visual tokens   (thumbnail_scale=0.25)
+#   384x384 full image  →  ~182 visual tokens   (cell_size=48, 8×48=384 — same as sokoban)
+#   96x96  thumbnail    →  ~9   visual tokens   (thumbnail_scale=0.25)
 #   system prompt       →  ~400 tokens
 #   per-turn obs text   →  ~50  tokens
 #   response cap        →  512  tokens (response_length_per_turn in yaml)
 #
+# Why 384 not 512: 512×512 → 325 tokens caused system-RAM OOM on Quest (128G) during
+# full-scale rollout (8 traj × 60 turns × image tensors ≈ 12GB, combined with FSDP
+# optimizer states). 384×384 → 182 tokens is the proven sokoban working configuration.
+#
 # Per-turn context budget at steady state (worst-case):
-#   no_memory:     sys(400) + obs_text(50) + img(325)                        ≈  775  → 1024
-#   window3_thumb: sys(400) + 3×(text+thumb+resp)(582) + current(375)        ≈ 2521  → 4096
-#   window3:       sys(400) + 3×(text+img+resp)(887)   + current(375)        ≈ 3436  → 4096
+#   no_memory:     sys(400) + obs_text(50) + img(182)                        ≈  632  → 1024
+#   window3_thumb: sys(400) + 3×(text+thumb+resp)(~571) + current(232)       ≈ 2345  → 4096
+#   window3:       sys(400) + 3×(text+img+resp)(744)   + current(232)        ≈ 2864  → 4096
 #   full_thumb:    grows with episode; response tokens (512/turn) dominate;
-#                  truncation expected beyond ~10 turns (future fix: strip <think> from old turns)
-#   full_memory:   sys(400) + (T-1)×887 + current(375); turn 9 ≈ 7871 tokens,
-#                  turn 10 ≈ 8758 → TRUNCATED. With max_turns=60 almost every
-#                  episode is heavily truncated beyond the first ~9 turns.
-#                  Use full_memory only for short-episode tests (max_turns ≤ 8)
-#                  or to establish an "as much full-res context as fits" upper bound.
+#                  truncation expected beyond ~13 turns (future fix: strip <think> from old turns)
+#   full_memory:   sys(400) + (T-1)×744 + current(232); turn 10 ≈ 7340,
+#                  turn 11 ≈ 8084 → TRUNCATED at ROLLOUT_PROMPT=8192 beyond ~11 turns.
 
 #SBATCH --job-name=vagen_grpo_membins_3b
 #SBATCH --account=p33224
@@ -75,8 +76,10 @@ fi
 
 case "${MODE}" in
   smoke)
-    # Smoke test: 8 envs, 30 steps, window=1 + thumbnail.
-    # Goal: verify the full pipeline runs (env, rollout, training step, W&B log) in < 10 min.
+    # Full-pipeline smoke test: 8 envs, 30 max_steps, window=1 + thumbnail.
+    # Validates every 5 training steps so W&B shows action_is_valid, success rate,
+    # and logged validation generations — same code paths as real experiments.
+    # Expected runtime: ~15–20 min (val before train + 2 mid-run vals + final val).
     EXPERIMENT_NAME=membins_grpo_smoke
     TRAIN_FILE=examples/train/memory_bins/train_memory_bins_smoke.yaml
     VAL_FILE=examples/train/memory_bins/val_memory_bins_smoke.yaml
@@ -97,13 +100,13 @@ case "${MODE}" in
     ADV_ESTIMATOR=grpo
     ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
     CRITIC_ARGS=(critic.enable=False)
-    # window=1 just to confirm thumbnail path runs; not the real ablation
+    # window=1 to confirm thumbnail path runs; not the real ablation
     HISTORY_ARGS=(trainer.history_window_size=1 trainer.thumbnail_scale=0.25)
-    VAL_BEFORE_TRAIN=False
+    VAL_BEFORE_TRAIN=True
     TOTAL_TRAINING_STEPS=10
     SAVE_FREQ=0
-    TEST_FREQ=0
-    LOG_VAL_GENERATIONS=0
+    TEST_FREQ=5
+    LOG_VAL_GENERATIONS=4
     ;;
 
   no_memory)
