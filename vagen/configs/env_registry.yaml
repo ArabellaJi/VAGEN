@@ -1,5 +1,6 @@
 env_registry:
   # Local environments
+  MemoryBins: vagen.envs.memory_bins.memory_bins_env.MemoryBinsEnv
   Sokoban: vagen.envs.sokoban.sokoban_env.Sokoban
   FrozenLake: vagen.envs.frozenlake.frozenlake_env.FrozenLake
   SpatialGym: vagen.envs.spatial_gym.spatial_gym_env.SpatialGym

@@ -1,0 +1,13 @@
+envs:
+  - name: MemoryBins
+    n_envs: 8
+    data_source: memory_bins_smoke
+    seed: [1, 8, 1]
+    max_turns: 30
+    response_length_per_turn: 512
+    config:
+      n_bins: 5
+      n_instructions: 3
+      max_steps: 30
+      bin_layout: fixed
+      cell_size: 64
