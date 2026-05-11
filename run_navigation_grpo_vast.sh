@@ -376,6 +376,7 @@ NAV_ENV_TIMEOUT="${NAV_ENV_TIMEOUT:-}"
 NAV_ENV_MAX_DELAY="${NAV_ENV_MAX_DELAY:-}"
 NAV_ADMIT_TIMEOUT="${NAV_ADMIT_TIMEOUT:-5}"
 NAV_SESSION_TIMEOUT="${NAV_SESSION_TIMEOUT:-3600}"
+NAV_SERVER_BASE_URL="${NAV_SERVER_BASE_URL:-http://${NAV_SERVER_HOST}:${NAV_SERVER_PORT}}"
 NAV_TRAIN_N_ENVS_OVERRIDE="${NAV_TRAIN_N_ENVS_OVERRIDE:-}"
 NAV_VAL_N_ENVS_OVERRIDE="${NAV_VAL_N_ENVS_OVERRIDE:-}"
 export WANDB_DIR="${WANDB_DIR:-${RUN_ROOT}/wandb}"
@@ -399,15 +400,15 @@ if [[ -n "${NAV_VAL_N_ENVS_OVERRIDE}" ]]; then
   validate_positive_integer_value "NAV_VAL_N_ENVS_OVERRIDE" "${NAV_VAL_N_ENVS_OVERRIDE}"
 fi
 
-if [[ "${NAV_LENIENT_ACTION_PARSE}" != "false" || -n "${NAV_EXAMPLE_COUNT}" || -n "${NAV_ENV_RETRIES}" || -n "${NAV_ENV_TIMEOUT}" || -n "${NAV_ENV_MAX_DELAY}" || -n "${NAV_TRAIN_N_ENVS_OVERRIDE}" || -n "${NAV_VAL_N_ENVS_OVERRIDE}" ]]; then
+if [[ "${NAV_LENIENT_ACTION_PARSE}" != "false" || -n "${NAV_EXAMPLE_COUNT}" || -n "${NAV_ENV_RETRIES}" || -n "${NAV_ENV_TIMEOUT}" || -n "${NAV_ENV_MAX_DELAY}" || -n "${NAV_TRAIN_N_ENVS_OVERRIDE}" || -n "${NAV_VAL_N_ENVS_OVERRIDE}" || "${NAV_SERVER_BASE_URL}" != "http://127.0.0.1:8000" ]]; then
   NAV_CONFIG_OVERRIDE_DIR="${RUN_ROOT}/config_overrides/${EXPERIMENT_NAME}_$(date +%Y%m%d_%H%M%S)"
   mkdir -p "${NAV_CONFIG_OVERRIDE_DIR}"
-  python - "${TRAIN_DATA}" "${VAL_DATA}" "${NAV_CONFIG_OVERRIDE_DIR}" "${NAV_LENIENT_ACTION_PARSE}" "${NAV_EXAMPLE_COUNT}" "${NAV_ENV_RETRIES}" "${NAV_ENV_TIMEOUT}" "${NAV_ENV_MAX_DELAY}" "${NAV_TRAIN_N_ENVS_OVERRIDE}" "${NAV_VAL_N_ENVS_OVERRIDE}" <<'PY'
+  python - "${TRAIN_DATA}" "${VAL_DATA}" "${NAV_CONFIG_OVERRIDE_DIR}" "${NAV_LENIENT_ACTION_PARSE}" "${NAV_EXAMPLE_COUNT}" "${NAV_ENV_RETRIES}" "${NAV_ENV_TIMEOUT}" "${NAV_ENV_MAX_DELAY}" "${NAV_TRAIN_N_ENVS_OVERRIDE}" "${NAV_VAL_N_ENVS_OVERRIDE}" "${NAV_SERVER_BASE_URL}" <<'PY'
 import os
 import sys
 import yaml
 
-train_src, val_src, out_dir, lenient_raw, example_raw, retries_raw, timeout_raw, max_delay_raw, train_n_envs_raw, val_n_envs_raw = sys.argv[1:11]
+train_src, val_src, out_dir, lenient_raw, example_raw, retries_raw, timeout_raw, max_delay_raw, train_n_envs_raw, val_n_envs_raw, nav_server_base_url = sys.argv[1:12]
 truthy = {"1", "true", "yes", "on"}
 falsy = {"0", "false", "no", "off", ""}
 value = lenient_raw.strip().lower()
@@ -430,6 +431,7 @@ def patch_one(src, name, n_envs_override):
         if n_envs_override is not None:
             env["n_envs"] = n_envs_override
         env_cfg = env.setdefault("config", {})
+        env_cfg["base_urls"] = nav_server_base_url
         env_cfg["lenient_action_parse"] = bool(lenient)
         if example_count is not None:
             env_cfg["example_count"] = example_count
@@ -573,6 +575,7 @@ echo "NAV_MAX_INFLIGHT:   ${NAV_MAX_INFLIGHT}"
 echo "NAV_THREAD_POOL:    ${NAV_THREAD_POOL_SIZE}"
 echo "NAV_ADMIT_TIMEOUT:  ${NAV_ADMIT_TIMEOUT}"
 echo "NAV_SESSION_TIMEOUT:${NAV_SESSION_TIMEOUT}"
+echo "NAV_SERVER_BASE_URL:${NAV_SERVER_BASE_URL}"
 echo "CUDA_HOME:          ${CUDA_HOME:-unset}"
 echo "VK_ICD_FILENAMES:   ${VK_ICD_FILENAMES:-unset}"
 echo "HF_HOME:            ${HF_HOME}"
