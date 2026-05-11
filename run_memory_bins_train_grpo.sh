@@ -211,7 +211,12 @@ case "${MODE}" in
     EXPERIMENT_NAME=membins_grpo_full_thumb
     TRAIN_FILE=examples/train/memory_bins/train_memory_bins.yaml
     VAL_FILE=examples/train/memory_bins/val_memory_bins.yaml
-    DATA_MAX_PROMPT=8192
+    # DATA_MAX_PROMPT < ROLLOUT_PROMPT intentionally:
+    # Rollout sees up to 8192 tokens (~13 thumbnail turns) — full long-context behavior.
+    # Training truncates to 4096 tokens (~6 turns) to avoid GPU OOM during backward:
+    # 8192-token attention matrix = (16, 8192, 8192) × 2 bytes ≈ 4.2 GB peak per layer.
+    # At 4096 tokens the peak drops to ~1 GB, fitting comfortably within the H100.
+    DATA_MAX_PROMPT=4096
     DATA_MAX_RESPONSE=512
     ROLLOUT_PROMPT=8192
     ROLLOUT_RESPONSE=512
@@ -254,8 +259,14 @@ case "${MODE}" in
     #      (drops response cost from 512 → ~25 tokens, fitting ~32 turns in 8192).
     EXPERIMENT_NAME=membins_grpo_full_memory
     TRAIN_FILE=examples/train/memory_bins/train_memory_bins.yaml
-    VAL_FILE=examples/train/memory_bins/val_memory_bins.yaml
-    DATA_MAX_PROMPT=8192
+    # Validation uses smoke yaml (8 envs) instead of the full 200-env val set.
+    # Full-res unlimited history: 200 envs × 60 turns × ~8 full-res images ≈ 170 GB
+    # of image data in Ray object store → system RAM OOM even at 256 G.
+    # 8 smoke envs × 30 turns × ~8 images ≈ 3 GB — feasible.
+    # Val metrics will have higher variance but the mode runs to completion.
+    VAL_FILE=examples/train/memory_bins/val_memory_bins_smoke.yaml
+    # Same DATA_MAX_PROMPT=4096 cap as full_thumb: 8192-token backward OOMs on GPU.
+    DATA_MAX_PROMPT=4096
     DATA_MAX_RESPONSE=512
     ROLLOUT_PROMPT=8192
     ROLLOUT_RESPONSE=512
@@ -263,7 +274,7 @@ case "${MODE}" in
     TRAIN_BATCH_SIZE=2
     PPO_MINI_BATCH_SIZE=2
     ROLLOUT_N=4
-    VAL_BATCH_SIZE=32
+    VAL_BATCH_SIZE=8
     ACTOR_USE_KL_LOSS=False
     ACTOR_KL_LOSS_COEF=0.0
     AGENT_CONFIG=agent_no_concat.yaml
