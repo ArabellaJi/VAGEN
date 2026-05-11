@@ -34,8 +34,8 @@
 #SBATCH --partition=gengpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:h100:1
-#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:h100:2
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
 #SBATCH --time=10:00:00
 #SBATCH --output=/home/eiu4164/projects/VAGEN/logs/%x_%j.out
@@ -52,9 +52,9 @@ RUN_ROOT=/projects/p33224/vagen_runs
 MODEL_REPO_ID="Qwen/Qwen2.5-VL-3B-Instruct"
 REF_MODEL_PATH="${REF_MODEL_PATH:-${HF_MODEL_LOCAL_PATH:-${MODEL_REPO_ID}}}"
 HF_HOME_DEFAULT=/projects/p33224/hf_cache
-MAX_AGENT_NUM_WORKERS=4
-N_GPUS_PER_NODE=1
-GPU_MEMORY_UTIL=0.4
+MAX_AGENT_NUM_WORKERS=8
+N_GPUS_PER_NODE=2
+GPU_MEMORY_UTIL=0.5
 FILTER_ARGS=()
 EXTRA_ARGS=()
 VAL_BEFORE_TRAIN=True
@@ -123,8 +123,8 @@ case "${MODE}" in
     ROLLOUT_PROMPT=1024
     ROLLOUT_RESPONSE=512
     MAX_BATCHED_TOKENS=4096
-    TRAIN_BATCH_SIZE=4
-    PPO_MINI_BATCH_SIZE=4
+    TRAIN_BATCH_SIZE=8
+    PPO_MINI_BATCH_SIZE=8
     ROLLOUT_N=4
     VAL_BATCH_SIZE=32
     ACTOR_USE_KL_LOSS=False
@@ -153,8 +153,8 @@ case "${MODE}" in
     ROLLOUT_PROMPT=4096
     ROLLOUT_RESPONSE=512
     MAX_BATCHED_TOKENS=8192
-    TRAIN_BATCH_SIZE=2
-    PPO_MINI_BATCH_SIZE=2
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
     ROLLOUT_N=4
     VAL_BATCH_SIZE=32
     ACTOR_USE_KL_LOSS=False
@@ -184,8 +184,8 @@ case "${MODE}" in
     ROLLOUT_PROMPT=4096
     ROLLOUT_RESPONSE=512
     MAX_BATCHED_TOKENS=8192
-    TRAIN_BATCH_SIZE=2
-    PPO_MINI_BATCH_SIZE=2
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
     ROLLOUT_N=4
     VAL_BATCH_SIZE=32
     ACTOR_USE_KL_LOSS=False
@@ -216,13 +216,14 @@ case "${MODE}" in
     # Training truncates to 4096 tokens (~6 turns) to avoid GPU OOM during backward:
     # 8192-token attention matrix = (16, 8192, 8192) × 2 bytes ≈ 4.2 GB peak per layer.
     # At 4096 tokens the peak drops to ~1 GB, fitting comfortably within the H100.
+    # With 2-GPU FSDP, each GPU holds half the params (~3 GB), so GPU_MEMORY_UTIL=0.5 is safe.
     DATA_MAX_PROMPT=4096
     DATA_MAX_RESPONSE=512
     ROLLOUT_PROMPT=8192
     ROLLOUT_RESPONSE=512
     MAX_BATCHED_TOKENS=16384
-    TRAIN_BATCH_SIZE=2
-    PPO_MINI_BATCH_SIZE=2
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
     ROLLOUT_N=4
     VAL_BATCH_SIZE=32
     ACTOR_USE_KL_LOSS=False
@@ -234,11 +235,6 @@ case "${MODE}" in
     ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
     CRITIC_ARGS=(critic.enable=False)
     HISTORY_ARGS=(trainer.history_window_size=-1 trainer.thumbnail_scale=0.25)
-    # GPU_MEMORY_UTIL stays at the default 0.4 (not 0.5).
-    # free_cache_engine=True empties the SGLang KV cache between rollout and training
-    # but does NOT release the pre-allocated GPU memory pool. At 0.5 the pool holds
-    # ~39.6 GB, leaving only ~2.75 GB free for loss.backward() → OOM.
-    # At 0.4 the pool is ~31.7 GB, freeing ~8 GB for the backward pass.
     ;;
 
   full_memory)
@@ -266,13 +262,14 @@ case "${MODE}" in
     # Val metrics will have higher variance but the mode runs to completion.
     VAL_FILE=examples/train/memory_bins/val_memory_bins_smoke.yaml
     # Same DATA_MAX_PROMPT=4096 cap as full_thumb: 8192-token backward OOMs on GPU.
+    # With 2-GPU FSDP, each GPU holds half the params (~3 GB), so GPU_MEMORY_UTIL=0.5 is safe.
     DATA_MAX_PROMPT=4096
     DATA_MAX_RESPONSE=512
     ROLLOUT_PROMPT=8192
     ROLLOUT_RESPONSE=512
     MAX_BATCHED_TOKENS=16384
-    TRAIN_BATCH_SIZE=2
-    PPO_MINI_BATCH_SIZE=2
+    TRAIN_BATCH_SIZE=4
+    PPO_MINI_BATCH_SIZE=4
     ROLLOUT_N=4
     VAL_BATCH_SIZE=8
     ACTOR_USE_KL_LOSS=False
@@ -284,7 +281,6 @@ case "${MODE}" in
     ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
     CRITIC_ARGS=(critic.enable=False)
     HISTORY_ARGS=(trainer.history_window_size=-1 trainer.thumbnail_scale=1.0)
-    # Same GPU_MEMORY_UTIL=0.4 rationale as full_thumb above.
     ;;
 
   4gpu)
@@ -527,7 +523,7 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   data.max_response_length=${DATA_MAX_RESPONSE} \
   algorithm.adv_estimator=${ADV_ESTIMATOR} \
   "${ADV_EXTRA_ARGS[@]}" \
-  algorithm.kl_ctrl.kl_coef=0.0 \
+  algorithm.kl_ctrl.kl_coef=0.001 \
   actor_rollout_ref.model.path="${REF_MODEL_PATH}" \
   ++actor_rollout_ref.model.override_config.attn_implementation=eager \
   actor_rollout_ref.model.use_remove_padding=False \
@@ -537,21 +533,18 @@ PYTHONUNBUFFERED=1 "${PY}" -m vagen.main_ppo \
   actor_rollout_ref.actor.use_kl_loss=${ACTOR_USE_KL_LOSS} \
   actor_rollout_ref.actor.kl_loss_coef=${ACTOR_KL_LOSS_COEF} \
   actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-  actor_rollout_ref.actor.entropy_coeff=0.0 \
+  actor_rollout_ref.actor.entropy_coeff=0.01 \
   actor_rollout_ref.actor.ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE} \
-  actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
+  actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
   actor_rollout_ref.actor.checkpoint.save_contents=['hf_model'] \
-  actor_rollout_ref.actor.fsdp_config.param_offload=True \
-  actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-  actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
-  actor_rollout_ref.ref.fsdp_config.param_offload=True \
+  actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
   actor_rollout_ref.rollout.name=sglang \
   actor_rollout_ref.rollout.mode=async \
   actor_rollout_ref.rollout.n=${ROLLOUT_N} \
-  actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+  actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
   actor_rollout_ref.rollout.prompt_length=${ROLLOUT_PROMPT} \
   actor_rollout_ref.rollout.response_length=${ROLLOUT_RESPONSE} \
-  actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
+  actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
   actor_rollout_ref.rollout.max_num_batched_tokens=${MAX_BATCHED_TOKENS} \
   actor_rollout_ref.rollout.gpu_memory_utilization=${GPU_MEMORY_UTIL} \
   actor_rollout_ref.rollout.enforce_eager=True \
