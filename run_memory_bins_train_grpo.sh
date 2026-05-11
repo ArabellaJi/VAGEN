@@ -36,7 +36,7 @@
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=128G
+#SBATCH --mem=256G
 #SBATCH --time=10:00:00
 #SBATCH --output=/home/eiu4164/projects/VAGEN/logs/%x_%j.out
 #SBATCH --error=/home/eiu4164/projects/VAGEN/logs/%x_%j.err
@@ -229,7 +229,11 @@ case "${MODE}" in
     ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
     CRITIC_ARGS=(critic.enable=False)
     HISTORY_ARGS=(trainer.history_window_size=-1 trainer.thumbnail_scale=0.25)
-    GPU_MEMORY_UTIL=0.5
+    # GPU_MEMORY_UTIL stays at the default 0.4 (not 0.5).
+    # free_cache_engine=True empties the SGLang KV cache between rollout and training
+    # but does NOT release the pre-allocated GPU memory pool. At 0.5 the pool holds
+    # ~39.6 GB, leaving only ~2.75 GB free for loss.backward() → OOM.
+    # At 0.4 the pool is ~31.7 GB, freeing ~8 GB for the backward pass.
     ;;
 
   full_memory)
@@ -269,7 +273,7 @@ case "${MODE}" in
     ADV_EXTRA_ARGS=(algorithm.norm_adv_by_std_in_grpo=True)
     CRITIC_ARGS=(critic.enable=False)
     HISTORY_ARGS=(trainer.history_window_size=-1 trainer.thumbnail_scale=1.0)
-    GPU_MEMORY_UTIL=0.5
+    # Same GPU_MEMORY_UTIL=0.4 rationale as full_thumb above.
     ;;
 
   4gpu)
