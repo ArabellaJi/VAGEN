@@ -7,6 +7,8 @@
 #
 # Typical use:
 #   CONDITION=quick bash run_navigation_grpo_vast.sh
+#   CONDITION=smoke bash run_navigation_grpo_vast.sh
+#   CONDITION=smoke3 bash run_navigation_grpo_vast.sh
 #
 # Useful knobs:
 #   NAV_GPU=0 TRAIN_GPU=1 CONDITION=window3_thumb bash run_navigation_grpo_vast.sh
@@ -58,7 +60,7 @@ validate_gpu_index() {
   fi
   if [[ "${GPU_COUNT_DETECTED}" -gt 0 && "${value}" -ge "${GPU_COUNT_DETECTED}" ]]; then
     echo "ERROR: ${label}=${value}, but nvidia-smi reports only ${GPU_COUNT_DETECTED} GPU(s), indexed 0..$((GPU_COUNT_DETECTED - 1))."
-    echo "For a single-GPU smoke test use: ALLOW_SINGLE_GPU_TRAIN=1 NAV_GPU=0 TRAIN_GPU=0 CONDITION=quick bash run_navigation_grpo_vast.sh"
+    echo "For a single-GPU smoke test use: ALLOW_SINGLE_GPU_TRAIN=1 NAV_GPU=0 TRAIN_GPU=0 CONDITION=smoke bash run_navigation_grpo_vast.sh"
     exit 1
   fi
 }
@@ -154,6 +156,54 @@ window_experiment_name() {
 }
 
 case "${CONDITION}" in
+  smoke)
+    EXPERIMENT_NAME=nav_grpo_smoke
+    TRAIN_DATA=${SCRIPTDIR}/train_navigation_quick.yaml
+    VAL_DATA=${SCRIPTDIR}/val_navigation_quick.yaml
+    NAV_MAX_ENVS=8
+    TRAINING_STEPS=1
+    TRAIN_BATCH_SIZE=2
+    ROLLOUT_N=1
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=5000
+    ROLLOUT_PROMPT=6000
+    ROLLOUT_RESPONSE=1024
+    MAX_BATCHED_TOKENS=8000
+    GPU_MEM_UTIL=0.65
+    CONCAT_MULTI_TURN=True
+    AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent.yaml
+    HISTORY_ARGS=()
+    ROLLOUT_NUM_WORKERS=2
+    TRAINER_LOGGER="${TRAINER_LOGGER:-[console]}"
+    NAV_VAL_BEFORE_TRAIN="${NAV_VAL_BEFORE_TRAIN:-False}"
+    NAV_TEST_FREQ="${NAV_TEST_FREQ:-0}"
+    NAV_SAVE_FREQ="${NAV_SAVE_FREQ:-0}"
+    NAV_LOG_VAL_GENERATIONS="${NAV_LOG_VAL_GENERATIONS:-0}"
+    ;;
+  smoke3)
+    EXPERIMENT_NAME=nav_grpo_smoke3
+    TRAIN_DATA=${SCRIPTDIR}/train_navigation_quick.yaml
+    VAL_DATA=${SCRIPTDIR}/val_navigation_quick.yaml
+    NAV_MAX_ENVS=8
+    TRAINING_STEPS=3
+    TRAIN_BATCH_SIZE=2
+    ROLLOUT_N=1
+    DATA_MAX_PROMPT=3000
+    DATA_MAX_RESPONSE=5000
+    ROLLOUT_PROMPT=6000
+    ROLLOUT_RESPONSE=1024
+    MAX_BATCHED_TOKENS=8000
+    GPU_MEM_UTIL=0.65
+    CONCAT_MULTI_TURN=True
+    AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent.yaml
+    HISTORY_ARGS=()
+    ROLLOUT_NUM_WORKERS=2
+    TRAINER_LOGGER="${TRAINER_LOGGER:-[console]}"
+    NAV_VAL_BEFORE_TRAIN="${NAV_VAL_BEFORE_TRAIN:-True}"
+    NAV_TEST_FREQ="${NAV_TEST_FREQ:-3}"
+    NAV_SAVE_FREQ="${NAV_SAVE_FREQ:-0}"
+    NAV_LOG_VAL_GENERATIONS="${NAV_LOG_VAL_GENERATIONS:-2}"
+    ;;
   quick)
     EXPERIMENT_NAME=nav_grpo_quick
     TRAIN_DATA=${SCRIPTDIR}/train_navigation_quick.yaml
@@ -293,7 +343,7 @@ case "${CONDITION}" in
     ;;
   *)
     echo "ERROR: Unknown CONDITION '${CONDITION}'."
-    echo "Valid: quick | full_memory | no_memory | window3 | thumbnail | window3_thumb | window"
+    echo "Valid: smoke | smoke3 | quick | full_memory | no_memory | window3 | thumbnail | window3_thumb | window"
     exit 1
     ;;
 esac

@@ -10,6 +10,8 @@
 #
 # Usage:
 #   sbatch run_navigation_grpo_access.sh
+#   sbatch --export=ALL,CONDITION=smoke run_navigation_grpo_access.sh
+#   sbatch --export=ALL,CONDITION=smoke3 run_navigation_grpo_access.sh
 #   sbatch --export=ALL,CONDITION=quick run_navigation_grpo_access.sh
 #   sbatch --partition=gpuH200x8 --gpus-per-node=2 --export=ALL,CONDITION=window3_thumb run_navigation_grpo_access.sh
 #
@@ -23,7 +25,7 @@
 #   PREDOWNLOAD_SCENES=1
 #
 # For a one-GPU smoke test only:
-#   sbatch --gpus-per-node=1 --export=ALL,CONDITION=quick,ALLOW_SINGLE_GPU_TRAIN=1 run_navigation_grpo_access.sh
+#   sbatch --gpus-per-node=1 --export=ALL,CONDITION=smoke,ALLOW_SINGLE_GPU_TRAIN=1 run_navigation_grpo_access.sh
 
 #SBATCH --job-name=nav_grpo
 #SBATCH --account=bfea-delta-gpu
@@ -187,7 +189,7 @@ export PROJECT_ROOT
 export RUN_ROOT
 export HF_CACHE
 export PYTHONNOUSERSITE="${PYTHONNOUSERSITE:-1}"
-if [[ "${CONDITION:-quick}" == "quick" && -z "${TRAINER_LOGGER:-}" ]]; then
+if [[ "${CONDITION:-quick}" =~ ^(quick|smoke|smoke3)$ && -z "${TRAINER_LOGGER:-}" ]]; then
   export TRAINER_LOGGER="[console]"
 fi
 export HF_HOME="${HF_HOME:-${HF_CACHE}}"
