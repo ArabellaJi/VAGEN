@@ -89,6 +89,8 @@ class MemoryBinsConfig:
     step_penalty: float = 0.1
     bin_open_penalty: float = 0.1
     task_reward: float = 10.0      # reward for opening the correct bin
+    format_reward: float = 0.05    # bonus for using <answer>...</answer> format
+    use_example_in_sys_prompt: bool = True   # append worked example to system prompt
 
 
 # ---------------------------------------------------------------------------
@@ -120,17 +122,24 @@ class MemoryBinsEnv(GymImageEnv):
         self.current_idx: int = 0
         self.agent_pos: Tuple[int, int] = _AGENT_START
         self.step_count: int = 0
+        # Feature 1: action feedback written into the next observation
+        self.last_action_feedback: str = ""
+        # Feature 3: episode-level format tracking
+        self._all_format_valid: bool = True
 
     # ------------------------------------------------------------------
     # GymImageEnv interface
-    # ------------------------------------------------------------------
     # ------------------------------------------------------------------
 
     async def close(self) -> None:
         pass
 
     async def system_prompt(self) -> Dict[str, Any]:
-        return {"obs_str": _SYSTEM_PROMPT}
+        # Feature 4: optionally append a worked example
+        prompt = _SYSTEM_PROMPT_BASE
+        if self.config.use_example_in_sys_prompt:
+            prompt += "\n\n" + _EXAMPLE_PROMPT
+        return {"obs_str": prompt}
 
     async def reset(self, seed: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         self.rng = random.Random(seed)
@@ -159,6 +168,8 @@ class MemoryBinsEnv(GymImageEnv):
         self.current_idx = 0
         self.agent_pos = _AGENT_START
         self.step_count = 0
+        self.last_action_feedback = ""   # Feature 1
+        self._all_format_valid = True    # Feature 3
 
         return self._make_obs(init=True), self._get_info()
 
@@ -175,30 +186,77 @@ class MemoryBinsEnv(GymImageEnv):
             self.bin_open[pos] = False
 
         action = self._parse_action(action_str)
-        reward = -self.config.step_penalty
+        m_fmt = _ANSWER_RE.search(action_str)
+        format_valid = (
+            m_fmt is not None
+            and m_fmt.group(1).strip().lower() in _ACTION_NAMES
+        )
+        # Feature 3: latch False for the rest of the episode on any bad-format turn
+        if not format_valid:
+            self._all_format_valid = False
+
+        reward = -self.config.step_penalty + (
+            self.config.format_reward if format_valid else 0.0
+        )
         action_valid = action in _ACTION_NAMES
         found_target = False
+        action_is_effective = False          # Feature 2
+        prev_pos = self.agent_pos            # Feature 2: snapshot before move
 
         if action in _MOVE_DELTA:
             dr, dc = _MOVE_DELTA[action]
             nr, nc = self.agent_pos[0] + dr, self.agent_pos[1] + dc
             if self._passable(nr, nc):
                 self.agent_pos = (nr, nc)
+            # Feature 2: effective iff position actually changed
+            action_is_effective = (self.agent_pos != prev_pos)
+            # Feature 1: feedback
+            if action_is_effective:
+                direction = action.split("_")[1]   # "move_down" → "down"
+                self.last_action_feedback = f"Moved {direction}."
+            else:
+                self.last_action_feedback = "Blocked — cannot move in that direction."
 
         elif action == "open_bin":
             target_bin = self._find_adjacent_bin()
             if target_bin is not None:
+                action_is_effective = True   # Feature 2
                 reward -= self.config.bin_open_penalty
                 self.bin_open[target_bin] = True
+                content = self.bin_contents[target_bin]
                 # Reward if this bin contains the current target.
                 if (
                     self.current_idx < len(self.instructions)
-                    and self.bin_contents[target_bin] == self.instructions[self.current_idx]
+                    and content == self.instructions[self.current_idx]
                 ):
                     reward += self.config.task_reward
                     self.pending_collect.add(target_bin)  # clear content next step
                     self.current_idx += 1
                     found_target = True
+                    # Feature 1: feedback — success
+                    self.last_action_feedback = (
+                        f"Opened bin — found the {content} cube! Instruction complete."
+                    )
+                elif content is None:
+                    # Feature 1: feedback — depleted bin
+                    self.last_action_feedback = (
+                        "Opened bin — already empty "
+                        "(you have searched this bin before)."
+                    )
+                else:
+                    # Feature 1: feedback — wrong cube
+                    self.last_action_feedback = (
+                        f"Opened bin — found {content} cube (not the current target)."
+                    )
+            else:
+                # Feature 1: feedback — no bin to open
+                self.last_action_feedback = "No adjacent bin to open."
+
+        else:
+            # Invalid or unrecognised action
+            self.last_action_feedback = (
+                "No valid action recognised." if not action_valid else ""
+            )
 
         self.step_count += 1
         all_done = self.current_idx >= len(self.instructions)
@@ -210,9 +268,12 @@ class MemoryBinsEnv(GymImageEnv):
             "traj_metrics": {
                 "success": all_done,
                 "completed": self.current_idx,
+                "is_format_correct": self._all_format_valid,  # Feature 3
             },
             "turn_metrics": {
                 "action_is_valid": action_valid,
+                "action_is_effective": action_is_effective,   # Feature 2
+                "format_valid": format_valid,
                 "found_target": found_target,
             },
         }
@@ -275,10 +336,15 @@ class MemoryBinsEnv(GymImageEnv):
         step_text = f"Step: {self.step_count}/{self.config.max_steps}"
         ph = self.config.image_placeholder
 
+        # Feature 1: include last-action feedback on every non-initial turn
+        feedback_line = (
+            f"Last action: {self.last_action_feedback}\n" if not init else ""
+        )
         obs_str = (
             f"Instruction: {instr_text}\n"
-            f"{step_text}\n\n"
-            f"{ph}"
+            f"{step_text}\n"
+            f"{feedback_line}"
+            f"\n{ph}"
         )
         return {
             "obs_str": obs_str,
@@ -354,7 +420,7 @@ class MemoryBinsEnv(GymImageEnv):
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
-_SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT_BASE = """\
 You are an agent in an 8x8 grid world. Your task is to find specific colored \
 cubes hidden inside bins by following sequential instructions.
 
@@ -381,6 +447,59 @@ RULES:
   - Opening bins costs extra penalty — use your memory to avoid re-opening \
 bins you have already inspected or depleted.
 
+OBSERVATION FORMAT:
+  Each turn shows the current instruction, step counter, a "Last action" line \
+with feedback from your previous action, and a grid image.
+  Use the "Last action" feedback to confirm whether your move succeeded or \
+what was inside the bin you opened.
+
 FORMAT — always respond like this:
 <think>your reasoning here</think>
 <answer>action_name</answer>"""
+
+
+_EXAMPLE_PROMPT = """\
+EXAMPLE (3 turns from a real episode — bins at rows/cols 1,1 and 1,5 and 3,3):
+
+--- Turn 1 ---
+Instruction: Find the blue cube.  [1/3]
+Step: 1/100
+
+<image>
+
+<think>
+I start at (0,0). There are 5 bins at fixed positions. The nearest bin is at \
+row 1, col 1. I cannot walk through bins, so I move down first to reach (1,0), \
+then I can open the adjacent bin.
+</think>
+<answer>move_down</answer>
+
+--- Turn 2 ---
+Instruction: Find the blue cube.  [1/3]
+Step: 2/100
+Last action: Moved down.
+
+<image>
+
+<think>
+Good, I am now at (1,0). The bin at (1,1) is adjacent to my right. I will \
+open it to check its contents.
+</think>
+<answer>open_bin</answer>
+
+--- Turn 3 ---
+Instruction: Find the blue cube.  [1/3]
+Step: 3/100
+Last action: Opened bin — found red cube (not the current target).
+
+<image>
+
+<think>
+The bin at (1,1) contains red, not blue. I will remember this. The next bin \
+to check is at (3,3). I need to navigate there — first move down toward row 3.
+</think>
+<answer>move_down</answer>
+
+(Episode continues. When the correct bin is opened the feedback reads:
+ "Opened bin — found the blue cube! Instruction complete." and the instruction
+ advances to [2/3].)"""
