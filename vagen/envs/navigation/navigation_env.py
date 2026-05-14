@@ -38,6 +38,10 @@ class NavigationEnvConfig:
     format_reward: float = 0.0          # end-of-episode bonus if ALL turns had correct format
     per_turn_format_reward: float = 0.01  # per-step bonus if this turn's format is correct
     success_reward: float = 1.0         # reaching the goal
+    distance_reward_weight: float = 0.2  # dense reward for reducing distance to target
+    distance_reward_clip: float = 0.3    # clip per-turn distance change in meters
+    failed_action_penalty: float = 0.02  # penalty if any executed primitive action failed
+    turn_penalty: float = 0.0            # optional per-LLM-turn penalty
     gpu_device: int = 0
     prompt_format: str = "free_think"   # free_think | wm | no_think | eval_mode
     example_count: int = 0             # number of examples in system prompt (0 = none)
@@ -200,8 +204,10 @@ class NavigationEnv(GymImageEnv):
         )
         actions = parsed["actions"]
         prev_pos = self._agent_pos()
+        prev_distance = self._distance_to_target()
         self._reward = 0.0
         self._valid_actions = []
+        action_successes: List[bool] = []
         done = False
         success = False
         info: Dict[str, Any] = {**parsed}
@@ -216,6 +222,7 @@ class NavigationEnv(GymImageEnv):
                     break
                 self._exec_action(ACTION_LOOKUP[action])
                 self._valid_actions.append(action)
+                action_successes.append(bool(self._controller.last_event.metadata["lastActionSuccess"]))
                 if self._is_success():
                     done = success = True
                     break
@@ -225,7 +232,7 @@ class NavigationEnv(GymImageEnv):
                     break
 
         # Compute reward
-        self._reward = compute_reward(
+        base_reward = compute_reward(
             parsed=parsed,
             valid_actions=self._valid_actions,
             success=success,
@@ -234,8 +241,26 @@ class NavigationEnv(GymImageEnv):
             success_reward=self.cfg.success_reward,
             is_format_correct_so_far=self._is_format_correct,
         )
-
         cur_pos = self._agent_pos()
+        cur_distance = self._distance_to_target()
+        distance_delta = prev_distance - cur_distance
+        clipped_distance_delta = float(
+            np.clip(
+                distance_delta,
+                -self.cfg.distance_reward_clip,
+                self.cfg.distance_reward_clip,
+            )
+        )
+        distance_reward = self.cfg.distance_reward_weight * clipped_distance_delta
+        failed_action_penalty = (
+            self.cfg.failed_action_penalty
+            if action_successes and not all(action_successes)
+            else 0.0
+        )
+        turn_penalty = self.cfg.turn_penalty
+        dense_reward = distance_reward - failed_action_penalty - turn_penalty
+        self._reward = base_reward + dense_reward
+        last_action_success = action_successes[-1] if action_successes else False
         info.update({
             "metrics": {
                 "turn_metrics": {
@@ -243,19 +268,30 @@ class NavigationEnv(GymImageEnv):
                     "action_is_effective": cur_pos["x"] != prev_pos["x"] or cur_pos["z"] != prev_pos["z"],
                     "format_correct": parsed.get("strict_format_correct", parsed["format_correct"]),
                     "action_parse_mode": parsed.get("action_parse_mode", "unknown"),
+                    "distance_delta": distance_delta,
+                    "dense_reward": dense_reward,
                 },
                 "traj_metrics": {
                     "success": success,
                     "is_format_correct": self._is_format_correct,
                 },
             },
-            "distance": self._distance_to_target(),
+            "distance": cur_distance,
+            "prev_distance": prev_distance,
+            "distance_delta": distance_delta,
+            "clipped_distance_delta": clipped_distance_delta,
+            "base_reward": base_reward,
+            "distance_reward": distance_reward,
+            "dense_reward": dense_reward,
+            "failed_action_penalty": failed_action_penalty,
+            "turn_penalty": turn_penalty,
+            "action_successes": action_successes,
             "instruction": self._instruction,
             "env_step": self._step_count,
             "episode_elapsed_seconds": time.time() - self._t0,
             "task_success": self._is_success(),
             "success": success,
-            "last_action_success": self._controller.last_event.metadata["lastActionSuccess"],
+            "last_action_success": last_action_success,
         })
         info["env_feedback"] = (
             "Last action is executed successfully." if info["last_action_success"]

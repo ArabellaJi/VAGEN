@@ -2,7 +2,7 @@ envs:
   - name: RemoteEnv
     n_envs: 30               # validation subset
     data_source: navigation
-    seed: [0, 60, 2]         # every other task = 30 unique scenes
+    seed: [0, 60, 2]         # sample 30 seeds, each seed appearing at most twice
     max_turns: 10
     response_length_per_turn: 1024
     config:

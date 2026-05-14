@@ -2,7 +2,7 @@ envs:
   - name: RemoteEnv
     n_envs: 60               # covers all 60 long_horizon tasks; fits single-GPU batch_size=30
     data_source: navigation
-    seed: [0, 60]            # 60 long_horizon tasks
+    seed: [0, 60]            # sample 60 seeds from the long_horizon range
     max_turns: 10            # up to 10 LLM calls per episode
     response_length_per_turn: 1024
     config:

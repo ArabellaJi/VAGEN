@@ -13,6 +13,7 @@
 # Useful knobs:
 #   NAV_GPU=0 TRAIN_GPU=1 CONDITION=window3_thumb bash run_navigation_grpo_vast.sh
 #   NAV_GPU=0 TRAIN_GPU=1 CONDITION=window NAV_HISTORY_WINDOW=5 NAV_THUMBNAIL_SCALE=0.25 bash run_navigation_grpo_vast.sh
+#   NAV_ROLLOUT_N=4 NAV_ROLLOUT_RESPONSE=4096 NAV_EXAMPLE_COUNT=1 CONDITION=full_memory bash run_navigation_grpo_vast.sh
 #   PREDOWNLOAD_SCENES=1 CONDITION=quick bash run_navigation_grpo_vast.sh
 #   USE_XVFB=1 CONDITION=quick bash run_navigation_grpo_vast.sh
 
@@ -137,6 +138,15 @@ validate_positive_number_value() {
   fi
 }
 
+validate_nonnegative_number_value() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "${value}" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]]; then
+    echo "ERROR: ${name} must be a non-negative number; got '${value}'." >&2
+    exit 1
+  fi
+}
+
 window_experiment_name() {
   local window="$1"
   local scale="$2"
@@ -230,12 +240,12 @@ case "${CONDITION}" in
     NAV_MAX_ENVS=64
     TRAINING_STEPS=200
     TRAIN_BATCH_SIZE=30
-    ROLLOUT_N=1
+    ROLLOUT_N=4
     DATA_MAX_PROMPT=3000
     DATA_MAX_RESPONSE=10000
     ROLLOUT_PROMPT=12000
-    ROLLOUT_RESPONSE=1024
-    MAX_BATCHED_TOKENS=14000
+    ROLLOUT_RESPONSE=4096
+    MAX_BATCHED_TOKENS=18000
     GPU_MEM_UTIL=0.65
     CONCAT_MULTI_TURN=True
     AGENT_LOOP_CFG=${PROJECT_ROOT}/vagen/configs/agent.yaml
@@ -360,6 +370,23 @@ if [[ -n "${NAV_ROLLOUT_NUM_WORKERS:-}" ]]; then
   validate_positive_integer_value "NAV_ROLLOUT_NUM_WORKERS" "${NAV_ROLLOUT_NUM_WORKERS}"
   ROLLOUT_NUM_WORKERS="${NAV_ROLLOUT_NUM_WORKERS}"
 fi
+if [[ -n "${NAV_ROLLOUT_N:-}" ]]; then
+  validate_positive_integer_value "NAV_ROLLOUT_N" "${NAV_ROLLOUT_N}"
+  ROLLOUT_N="${NAV_ROLLOUT_N}"
+fi
+if [[ -n "${NAV_ROLLOUT_RESPONSE:-}" ]]; then
+  validate_positive_integer_value "NAV_ROLLOUT_RESPONSE" "${NAV_ROLLOUT_RESPONSE}"
+  ROLLOUT_RESPONSE="${NAV_ROLLOUT_RESPONSE}"
+fi
+if [[ -n "${NAV_MAX_BATCHED_TOKENS:-}" ]]; then
+  validate_positive_integer_value "NAV_MAX_BATCHED_TOKENS" "${NAV_MAX_BATCHED_TOKENS}"
+  MAX_BATCHED_TOKENS="${NAV_MAX_BATCHED_TOKENS}"
+fi
+MIN_BATCHED_TOKENS=$((ROLLOUT_PROMPT + ROLLOUT_RESPONSE + 512))
+if (( MAX_BATCHED_TOKENS < MIN_BATCHED_TOKENS )); then
+  echo "Increasing MAX_BATCHED_TOKENS from ${MAX_BATCHED_TOKENS} to ${MIN_BATCHED_TOKENS} to cover rollout prompt+response."
+  MAX_BATCHED_TOKENS="${MIN_BATCHED_TOKENS}"
+fi
 if [[ -n "${NAV_MAX_ENVS_OVERRIDE:-}" ]]; then
   validate_positive_integer_value "NAV_MAX_ENVS_OVERRIDE" "${NAV_MAX_ENVS_OVERRIDE}"
   NAV_MAX_ENVS="${NAV_MAX_ENVS_OVERRIDE}"
@@ -420,7 +447,11 @@ NAV_LOG_VAL_GENERATIONS="${NAV_LOG_VAL_GENERATIONS:-10}"
 NAV_SKIP_SPECIAL_TOKENS_VAL="${NAV_SKIP_SPECIAL_TOKENS_VAL:-False}"
 NAV_SKIP_SPECIAL_TOKENS_TRAIN="${NAV_SKIP_SPECIAL_TOKENS_TRAIN:-False}"
 NAV_LENIENT_ACTION_PARSE="${NAV_LENIENT_ACTION_PARSE:-false}"
-NAV_EXAMPLE_COUNT="${NAV_EXAMPLE_COUNT:-}"
+NAV_EXAMPLE_COUNT="${NAV_EXAMPLE_COUNT:-1}"
+NAV_DISTANCE_REWARD_WEIGHT="${NAV_DISTANCE_REWARD_WEIGHT:-0.2}"
+NAV_DISTANCE_REWARD_CLIP="${NAV_DISTANCE_REWARD_CLIP:-0.3}"
+NAV_FAILED_ACTION_PENALTY="${NAV_FAILED_ACTION_PENALTY:-0.02}"
+NAV_TURN_PENALTY="${NAV_TURN_PENALTY:-0.0}"
 NAV_ENV_RETRIES="${NAV_ENV_RETRIES:-}"
 NAV_ENV_TIMEOUT="${NAV_ENV_TIMEOUT:-}"
 NAV_ENV_MAX_DELAY="${NAV_ENV_MAX_DELAY:-}"
@@ -441,6 +472,10 @@ fi
 if [[ -n "${NAV_ENV_MAX_DELAY}" ]]; then
   validate_positive_number_value "NAV_ENV_MAX_DELAY" "${NAV_ENV_MAX_DELAY}"
 fi
+validate_nonnegative_number_value "NAV_DISTANCE_REWARD_WEIGHT" "${NAV_DISTANCE_REWARD_WEIGHT}"
+validate_nonnegative_number_value "NAV_DISTANCE_REWARD_CLIP" "${NAV_DISTANCE_REWARD_CLIP}"
+validate_nonnegative_number_value "NAV_FAILED_ACTION_PENALTY" "${NAV_FAILED_ACTION_PENALTY}"
+validate_nonnegative_number_value "NAV_TURN_PENALTY" "${NAV_TURN_PENALTY}"
 validate_positive_number_value "NAV_ADMIT_TIMEOUT" "${NAV_ADMIT_TIMEOUT}"
 validate_positive_number_value "NAV_SESSION_TIMEOUT" "${NAV_SESSION_TIMEOUT}"
 if [[ -n "${NAV_TRAIN_N_ENVS_OVERRIDE}" ]]; then
@@ -450,15 +485,31 @@ if [[ -n "${NAV_VAL_N_ENVS_OVERRIDE}" ]]; then
   validate_positive_integer_value "NAV_VAL_N_ENVS_OVERRIDE" "${NAV_VAL_N_ENVS_OVERRIDE}"
 fi
 
-if [[ "${NAV_LENIENT_ACTION_PARSE}" != "false" || -n "${NAV_EXAMPLE_COUNT}" || -n "${NAV_ENV_RETRIES}" || -n "${NAV_ENV_TIMEOUT}" || -n "${NAV_ENV_MAX_DELAY}" || -n "${NAV_TRAIN_N_ENVS_OVERRIDE}" || -n "${NAV_VAL_N_ENVS_OVERRIDE}" || "${NAV_SERVER_BASE_URL}" != "http://127.0.0.1:8000" ]]; then
+if [[ "${NAV_LENIENT_ACTION_PARSE}" != "false" || -n "${NAV_EXAMPLE_COUNT}" || -n "${NAV_ENV_RETRIES}" || -n "${NAV_ENV_TIMEOUT}" || -n "${NAV_ENV_MAX_DELAY}" || -n "${NAV_TRAIN_N_ENVS_OVERRIDE}" || -n "${NAV_VAL_N_ENVS_OVERRIDE}" || -n "${NAV_DISTANCE_REWARD_WEIGHT}" || -n "${NAV_DISTANCE_REWARD_CLIP}" || -n "${NAV_FAILED_ACTION_PENALTY}" || -n "${NAV_TURN_PENALTY}" || "${NAV_SERVER_BASE_URL}" != "http://127.0.0.1:8000" ]]; then
   NAV_CONFIG_OVERRIDE_DIR="${RUN_ROOT}/config_overrides/${EXPERIMENT_NAME}_$(date +%Y%m%d_%H%M%S)"
   mkdir -p "${NAV_CONFIG_OVERRIDE_DIR}"
-  python - "${TRAIN_DATA}" "${VAL_DATA}" "${NAV_CONFIG_OVERRIDE_DIR}" "${NAV_LENIENT_ACTION_PARSE}" "${NAV_EXAMPLE_COUNT}" "${NAV_ENV_RETRIES}" "${NAV_ENV_TIMEOUT}" "${NAV_ENV_MAX_DELAY}" "${NAV_TRAIN_N_ENVS_OVERRIDE}" "${NAV_VAL_N_ENVS_OVERRIDE}" "${NAV_SERVER_BASE_URL}" <<'PY'
+  python - "${TRAIN_DATA}" "${VAL_DATA}" "${NAV_CONFIG_OVERRIDE_DIR}" "${NAV_LENIENT_ACTION_PARSE}" "${NAV_EXAMPLE_COUNT}" "${NAV_ENV_RETRIES}" "${NAV_ENV_TIMEOUT}" "${NAV_ENV_MAX_DELAY}" "${NAV_TRAIN_N_ENVS_OVERRIDE}" "${NAV_VAL_N_ENVS_OVERRIDE}" "${NAV_SERVER_BASE_URL}" "${NAV_DISTANCE_REWARD_WEIGHT}" "${NAV_DISTANCE_REWARD_CLIP}" "${NAV_FAILED_ACTION_PENALTY}" "${NAV_TURN_PENALTY}" <<'PY'
 import os
 import sys
 import yaml
 
-train_src, val_src, out_dir, lenient_raw, example_raw, retries_raw, timeout_raw, max_delay_raw, train_n_envs_raw, val_n_envs_raw, nav_server_base_url = sys.argv[1:12]
+(
+    train_src,
+    val_src,
+    out_dir,
+    lenient_raw,
+    example_raw,
+    retries_raw,
+    timeout_raw,
+    max_delay_raw,
+    train_n_envs_raw,
+    val_n_envs_raw,
+    nav_server_base_url,
+    distance_reward_weight_raw,
+    distance_reward_clip_raw,
+    failed_action_penalty_raw,
+    turn_penalty_raw,
+) = sys.argv[1:16]
 truthy = {"1", "true", "yes", "on"}
 falsy = {"0", "false", "no", "off", ""}
 value = lenient_raw.strip().lower()
@@ -473,6 +524,10 @@ timeout = None if timeout_raw == "" else float(timeout_raw)
 max_delay = None if max_delay_raw == "" else float(max_delay_raw)
 train_n_envs = None if train_n_envs_raw == "" else int(train_n_envs_raw)
 val_n_envs = None if val_n_envs_raw == "" else int(val_n_envs_raw)
+distance_reward_weight = float(distance_reward_weight_raw)
+distance_reward_clip = float(distance_reward_clip_raw)
+failed_action_penalty = float(failed_action_penalty_raw)
+turn_penalty = float(turn_penalty_raw)
 
 def patch_one(src, name, n_envs_override):
     with open(src) as f:
@@ -483,6 +538,10 @@ def patch_one(src, name, n_envs_override):
         env_cfg = env.setdefault("config", {})
         env_cfg["base_urls"] = nav_server_base_url
         env_cfg["lenient_action_parse"] = bool(lenient)
+        env_cfg["distance_reward_weight"] = distance_reward_weight
+        env_cfg["distance_reward_clip"] = distance_reward_clip
+        env_cfg["failed_action_penalty"] = failed_action_penalty
+        env_cfg["turn_penalty"] = turn_penalty
         if example_count is not None:
             env_cfg["example_count"] = example_count
         if retries is not None:
@@ -619,6 +678,9 @@ echo "NAV_CUDA_VISIBLE:   ${NAV_CUDA_VISIBLE_DEVICES}"
 echo "TRAIN_CUDA_VISIBLE: ${TRAIN_CUDA_VISIBLE_DEVICES}"
 echo "TRAINING_STEPS:     ${TRAINING_STEPS}"
 echo "TRAIN_BATCH_SIZE:   ${TRAIN_BATCH_SIZE}"
+echo "ROLLOUT_N:          ${ROLLOUT_N}"
+echo "ROLLOUT_RESPONSE:   ${ROLLOUT_RESPONSE}"
+echo "MAX_BATCHED_TOKENS: ${MAX_BATCHED_TOKENS}"
 echo "ROLLOUT_WORKERS:    ${ROLLOUT_NUM_WORKERS}"
 echo "NAV_MAX_ENVS:       ${NAV_MAX_ENVS}"
 echo "NAV_MAX_INFLIGHT:   ${NAV_MAX_INFLIGHT}"
@@ -646,6 +708,10 @@ echo "SKIP_SPECIAL_VAL:   ${NAV_SKIP_SPECIAL_TOKENS_VAL}"
 echo "SKIP_SPECIAL_TRAIN: ${NAV_SKIP_SPECIAL_TOKENS_TRAIN}"
 echo "LENIENT_ACTION:     ${NAV_LENIENT_ACTION_PARSE}"
 echo "EXAMPLE_COUNT:      ${NAV_EXAMPLE_COUNT:-unchanged}"
+echo "DIST_REWARD_WEIGHT: ${NAV_DISTANCE_REWARD_WEIGHT}"
+echo "DIST_REWARD_CLIP:   ${NAV_DISTANCE_REWARD_CLIP}"
+echo "FAILED_ACTION_PEN:  ${NAV_FAILED_ACTION_PENALTY}"
+echo "TURN_PENALTY:       ${NAV_TURN_PENALTY}"
 echo "ENV_RETRIES:        ${NAV_ENV_RETRIES:-unchanged}"
 echo "ENV_TIMEOUT:        ${NAV_ENV_TIMEOUT:-unchanged}"
 echo "ENV_MAX_DELAY:      ${NAV_ENV_MAX_DELAY:-unchanged}"

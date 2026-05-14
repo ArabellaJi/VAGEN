@@ -22,6 +22,9 @@
 #   RUN_ROOT=/work/hdd/bfea/$USER/vagen_runs
 #   CONDA_ENV_NAME=vagen_noflash
 #   CONDITION=quick
+#   NAV_ROLLOUT_N=4
+#   NAV_ROLLOUT_RESPONSE=4096
+#   NAV_EXAMPLE_COUNT=1
 #   PREDOWNLOAD_SCENES=1
 #
 # For a one-GPU smoke test only:
