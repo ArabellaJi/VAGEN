@@ -7,7 +7,7 @@ Usage:
 import argparse
 import torch
 from PIL import Image
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
 
 
@@ -22,7 +22,7 @@ def main():
     args = parser.parse_args()
 
     print(f"Loading model from: {args.model_path}")
-    model = Qwen2VLForConditionalGeneration.from_pretrained(
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         args.model_path,
         torch_dtype=torch.float16,
         device_map="auto",
