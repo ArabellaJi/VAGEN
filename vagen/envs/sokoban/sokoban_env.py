@@ -315,7 +315,8 @@ if __name__ == "__main__":
                          save_path: str = "./test",
                          min_solution_steps: Tuple[int, int] = (1, 5),
                          reset_seed_max_tries: int = 10000,
-                         min_solution_bfs_max_depth: int = 100
+                         min_solution_bfs_max_depth: int = 100,
+                         seed: int = 0,
                         ):
         cfg = {
             "render_mode": render_mode,
@@ -334,7 +335,7 @@ if __name__ == "__main__":
         print(env.get_system_prompt())
         print("\n" + "=" * 50 + "\n")
 
-        obs, info = await env.reset(seed=0)
+        obs, info = await env.reset(seed=seed)
         print("Initial Observation:")
         print(obs["obs_str"])
         step = 0

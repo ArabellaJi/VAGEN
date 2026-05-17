@@ -37,7 +37,7 @@
 #SBATCH --gres=gpu:h100:2
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
-#SBATCH --time=10:00:00
+#SBATCH --time=8:00:00
 #SBATCH --output=/home/eiu4164/projects/VAGEN/logs/%x_%j.out
 #SBATCH --error=/home/eiu4164/projects/VAGEN/logs/%x_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
