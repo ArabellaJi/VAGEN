@@ -6,7 +6,7 @@ fileroot: /root/VAGEN
 envs:
   - name: Sokoban
     n_envs: 32
-    tag_id: sokoban_14b_val
+    tag_id: sokoban_32b_val
     seed: [10000, 10032, 1]
     max_turns: 5
     config:
@@ -25,7 +25,7 @@ envs:
       top_p: 1.0
 
 experiment:
-  dump_dir: ${fileroot}/rollouts/eval_sokoban_14b
+  dump_dir: ${fileroot}/rollouts/eval_sokoban_32b
   default_max_turns: 5
 
 run:
@@ -39,7 +39,7 @@ backends:
   sglang:
     base_url: "http://127.0.0.1:30000/v1"
     api_key: "EMPTY"
-    model: "Qwen/Qwen2.5-VL-14B-Instruct"
+    model: "Qwen/Qwen2.5-VL-32B-Instruct"
     max_concurrency: 8
     max_retries: 6
     min_backoff: 0.5
