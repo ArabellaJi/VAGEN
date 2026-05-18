@@ -1,6 +1,6 @@
-def system_prompt():
+def system_prompt(partial_obs_radius: int = 0):
     """Return the system prompt for Sokoban solver"""
-    return """You are a Sokoban solver.
+    base = """You are a Sokoban solver.
 Sokoban Quick Guide
 Goal: Push all boxes onto targets.
 Symbols (If image is provided there are no symbols):
@@ -9,6 +9,12 @@ Rules:
 1. Push boxes (can't pull).
 2. Avoid walls.
 Actions you can take: Left, Down, Right, Up."""
+    if partial_obs_radius > 0:
+        window = 2 * partial_obs_radius + 1
+        base += f"""
+
+Important: You have limited visibility. Each observation shows only a {window}×{window} grid centered on your current position (P). The full map extends beyond this window. The box and target may be outside your current view — you must explore by moving to find them. Use your history of past observations to remember where you have seen objects."""
+    return base
 
 def init_observation_template(img_str):
     """Template for initial observation"""
@@ -24,12 +30,12 @@ After that, the observation is:
 Decide your next action(s)."""
 
 
-def format_prompt(max_actions_per_step, action_sep, add_example=True, prompt_format="free_think"):
+def format_prompt(max_actions_per_step, action_sep, add_example=True, prompt_format="free_think", partial_obs_radius: int = 0):
     """Generate format prompt based on the specified format"""
     if prompt_format == "free_think":
         return free_think_format_prompt(max_actions_per_step, action_sep, add_example)
     elif prompt_format == "wm":
-        return wm_format_prompt(max_actions_per_step, action_sep, add_example)
+        return wm_format_prompt(max_actions_per_step, action_sep, add_example, partial_obs_radius)
     elif prompt_format == "free_wm":
         return free_wm_format_prompt(max_actions_per_step, action_sep, add_example)
     else:
@@ -62,13 +68,18 @@ Example 3:
 
 
 
-def wm_format_prompt(max_actions_per_step, action_sep, add_example=True):
+def wm_format_prompt(max_actions_per_step, action_sep, add_example=True, partial_obs_radius: int = 0):
     """Generate format prompt for wm_new format with explicit row/column distinction"""
-    base_prompt = f"""You can take up to {max_actions_per_step} action(s) at a time, separated by {action_sep}.
-Your response must be in the format of:
-<observation>...</observation><think>...</think><answer>...</answer><prediction>...</prediction>.
-
-Rules for <observation> and <prediction>:
+    if partial_obs_radius > 0:
+        obs_rules = """Rules for <observation> and <prediction>:
+- If the box or target is visible in your current view, describe its position relative to the player using EXACTLY:
+  - ONE vertical term: `above`, `below`, or `same row`
+  - ONE horizontal term: `left`, `right`, or `same column`
+  - Pattern: "X is <vertical> and <horizontal> of the player"
+- If the box or target is NOT visible in your current view, write "not visible" for that object.
+- Do NOT use the word `same` alone."""
+    else:
+        obs_rules = """Rules for <observation> and <prediction>:
 - You must strictly describe the relative position of the `target` and any visible `box` objects **relative to the player**.
 - For each object, you MUST include:
   - exactly ONE vertical relationship: `above`, `below`, or `same row`
@@ -77,7 +88,13 @@ Rules for <observation> and <prediction>:
 - Always use the phrasing pattern:
   "X is <vertical> and <horizontal> of the player".
 - Do NOT use the word `same` alone.
-- Do not include any extra information.
+- Do not include any extra information."""
+
+    base_prompt = f"""You can take up to {max_actions_per_step} action(s) at a time, separated by {action_sep}.
+Your response must be in the format of:
+<observation>...</observation><think>...</think><answer>...</answer><prediction>...</prediction>.
+
+{obs_rules}
 
 Rules for <answer>:
 - Output 1 to {max_actions_per_step} action(s).

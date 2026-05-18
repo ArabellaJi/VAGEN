@@ -45,6 +45,7 @@ class SokobanEnvConfig:
     success_reward: float = 1.0
     require_informative_wm: bool = False  # Reject placeholder wm text like "..."
     render_scale: int = 4  # Upscale factor for vision rendering (default 4 → ~384×384 for 6×6 room)
+    partial_obs_radius: int = 0  # 0 = full map; 1 = 3×3 window; 2 = 5×5 window centered on player
     
 class Sokoban(GymImageEnv):
     """
@@ -227,8 +228,9 @@ class Sokoban(GymImageEnv):
             action_sep=self.config.action_sep,
             add_example=self.config.use_example_in_sys_prompt,
             prompt_format=self.config.prompt_format,
+            partial_obs_radius=self.config.partial_obs_radius,
         )
-        return system_prompt() + "\n" + format_prompt_str
+        return system_prompt(partial_obs_radius=self.config.partial_obs_radius) + "\n" + format_prompt_str
 
     # ------------------------------
     # Internal helpers
@@ -252,6 +254,8 @@ class Sokoban(GymImageEnv):
         if self.config.render_mode == "vision":
             # Offload blocking render to a thread pool
             rgb_array = await asyncio.to_thread(self.env.render, "rgb_array")
+            if self.config.partial_obs_radius > 0:
+                rgb_array = self._crop_partial_obs(rgb_array)
             pil_img = numpy_to_pil(rgb_array)
             if self.config.render_scale > 1:
                 w, h = pil_img.size
@@ -276,6 +280,20 @@ class Sokoban(GymImageEnv):
             obs["multi_modal_input"] = multi_modal_input
         return obs
 
+    def _crop_partial_obs(self, rgb_array: np.ndarray) -> np.ndarray:
+        """Crop rgb_array to the partial obs window centered on the player."""
+        pr, pc = self.env.player_position
+        H_px, W_px = rgb_array.shape[:2]
+        H_cells, W_cells = self.env.room_state.shape
+        cell_h = H_px // H_cells
+        cell_w = W_px // W_cells
+        rad = self.config.partial_obs_radius
+        r0 = max(0, (pr - rad) * cell_h)
+        r1 = min(H_px, (pr + rad + 1) * cell_h)
+        c0 = max(0, (pc - rad) * cell_w)
+        c1 = min(W_px, (pc + rad + 1) * cell_w)
+        return rgb_array[r0:r1, c0:c1]
+
     def _grid_to_text(self) -> str:
         """Convert current room_state to a human-readable text grid."""
         room_state = np.where(
@@ -283,6 +301,18 @@ class Sokoban(GymImageEnv):
             6,
             self.env.room_state,
         )
+        if self.config.partial_obs_radius > 0:
+            pr, pc = self.env.player_position
+            H, W = room_state.shape
+            rad = self.config.partial_obs_radius
+            window = []
+            for dr in range(-rad, rad + 1):
+                row = []
+                for dc in range(-rad, rad + 1):
+                    nr, nc = pr + dr, pc + dc
+                    row.append(int(room_state[nr, nc]) if 0 <= nr < H and 0 <= nc < W else 0)
+                window.append(row)
+            room_state = np.array(window)
         text_rows = []
         for row in room_state:
             text_row = "".join(self.GRID_LOOKUP.get(int(cell), "?") for cell in row)
