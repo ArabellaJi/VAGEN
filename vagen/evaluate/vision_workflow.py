@@ -2,6 +2,8 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Literal
 from PIL import Image
+import base64
+import io
 import os
 import json
 import asyncio
@@ -36,10 +38,12 @@ class GenericVisionInferenceWorkflow:
         success_threshold: float = 0.99,
         chat_config: Optional[Dict[str, Any]] = None,
         concat_multi_turn: bool = True,
+        history_thumbnail_scale: float = 1.0,
     ):
         self.adapter = adapter
         self.dump_dir = dump_dir
         self.concat_multi_turn = concat_multi_turn
+        self.history_thumbnail_scale = float(history_thumbnail_scale)
         # IMPORTANT: dump_enabled is ignored; we always dump for executed episodes
         self.dump_enabled = True
         self.success_keys = success_keys or ["success", "is_success", "solved"]
@@ -47,6 +51,37 @@ class GenericVisionInferenceWorkflow:
         self.chat_config = dict(chat_config or {})
         if self.dump_dir:
             os.makedirs(self.dump_dir, exist_ok=True)
+
+    def _apply_thumbnail_to_history(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Return messages with past user images downscaled; the last user message keeps full resolution."""
+        scale = self.history_thumbnail_scale
+        if scale >= 1.0 or len(messages) <= 1:
+            return messages
+        last_user_idx = max(i for i, m in enumerate(messages) if m.get("role") == "user")
+        result = []
+        for i, msg in enumerate(messages):
+            if msg.get("role") != "user" or i == last_user_idx:
+                result.append(msg)
+                continue
+            new_content = []
+            for part in msg.get("content", []):
+                if part.get("type") == "image_url":
+                    url = part["image_url"]["url"]
+                    header, data = url.split(",", 1)
+                    img = Image.open(io.BytesIO(base64.b64decode(data)))
+                    w, h = img.size
+                    img = img.resize(
+                        (max(1, int(w * scale)), max(1, int(h * scale))),
+                        Image.LANCZOS,
+                    )
+                    buf = io.BytesIO()
+                    img.save(buf, "PNG")
+                    new_url = header + "," + base64.b64encode(buf.getvalue()).decode()
+                    new_content.append({"type": "image_url", "image_url": {"url": new_url}})
+                else:
+                    new_content.append(part)
+            result.append({**msg, "content": new_content})
+        return result
 
     async def _dump(
         self,
@@ -186,7 +221,7 @@ class GenericVisionInferenceWorkflow:
                 try:
                     # In non-concat mode, only send system prompt + current user message
                     if self.concat_multi_turn:
-                        api_messages = messages
+                        api_messages = self._apply_thumbnail_to_history(messages)
                     else:
                         api_messages = [messages[0], messages[-1]]
                     reply = await self.adapter.acompletion(api_messages, **self.chat_config)
