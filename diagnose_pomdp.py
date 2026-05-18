@@ -55,11 +55,18 @@ def side_by_side(left_lines: list[str], right_lines: list[str], left_title: str,
     return "\n".join(out)
 
 
+_GRID_TOKENS = {"#", "_", "O", "X", "P", "√", "S"}
+
+def _is_grid_line(line: str) -> bool:
+    """A grid line consists entirely of known cell tokens (no prose words)."""
+    tokens = line.split()
+    return len(tokens) > 0 and all(t in _GRID_TOKENS for t in tokens)
+
 def check_player_centered(obs_str: str) -> tuple[bool, str]:
     """Check that P is in the center cell of the 3x3 grid."""
-    lines = [l for l in obs_str.strip().split("\n") if l.strip()]
+    lines = [l for l in obs_str.strip().split("\n") if _is_grid_line(l)]
     if len(lines) != 3:
-        return False, f"Expected 3 rows, got {len(lines)}"
+        return False, f"Expected 3 grid rows, got {len(lines)}: {lines}"
     center_row = lines[1]
     cells = [c.strip() for c in center_row.split() if c.strip()]
     if len(cells) != 3:
@@ -87,8 +94,8 @@ async def run_seed_text(seed: int, verbose: bool = True) -> dict:
         part_grid = obs_p["obs_str"].strip()
 
         # Extract just the grid lines (skip template text)
-        full_lines = [l for l in full_grid.split("\n") if any(c in l for c in "#_OXPSsv√")]
-        part_lines = [l for l in part_grid.split("\n") if any(c in l for c in "#_OXPSsv√")]
+        full_lines = [l for l in full_grid.split("\n") if _is_grid_line(l)]
+        part_lines = [l for l in part_grid.split("\n") if _is_grid_line(l)]
 
         player_ok, note = check_player_centered("\n".join(part_lines))
         results.append({"step": step_i, "player_centered": player_ok, "note": note})

@@ -14,9 +14,9 @@ VAGEN_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
 # ── Args ────────────────────────────────────────────────────────────────
 CONFIG="${1:?Usage: bash eval_sglang.sh <config.yaml> [overrides...]}"
-# Make path absolute if relative
+# Make path absolute relative to the caller's working directory
 if [[ "${CONFIG}" != /* ]]; then
-  CONFIG="${SCRIPT_DIR}/${CONFIG}"
+  CONFIG="$(realpath "${CONFIG}")"
 fi
 shift || true   # remaining args forwarded to run_eval as hydra overrides
 
