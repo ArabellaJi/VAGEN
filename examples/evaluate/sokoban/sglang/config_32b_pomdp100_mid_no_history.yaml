@@ -1,0 +1,51 @@
+defaults:
+  - ../../../../vagen/configs/eval_default
+
+fileroot: /root/VAGEN
+
+envs:
+  - name: Sokoban
+    n_envs: 100
+    tag_id: sokoban_32b_pomdp100_mid_no_history
+    seed: [10000, 10100, 1]
+    max_turns: 15
+    concat_multi_turn: false
+    config:
+      dim_room: [6, 6]
+      max_steps: 150
+      num_boxes: 1
+      render_mode: vision
+      render_scale: 4
+      max_actions_per_step: 3
+      action_sep: ","
+      use_example_in_sys_prompt: true
+      prompt_format: wm
+      partial_obs_radius: 1
+      min_solution_steps: [4, 8]
+      reset_seed_max_tries: 10000
+      min_solution_bfs_max_depth: 200
+    chat_config:
+      temperature: 0
+      max_tokens: 1024
+      top_p: 1.0
+
+experiment:
+  dump_dir: ${fileroot}/rollouts/eval_sokoban_32b_pomdp100_mid_no_history
+  default_max_turns: 15
+
+run:
+  backend: "sglang"
+  base_seed: 0
+  max_concurrent_jobs: 8
+  resume: skip_completed
+  live_summary: true
+
+backends:
+  sglang:
+    base_url: "http://127.0.0.1:30000/v1"
+    api_key: "EMPTY"
+    model: "Qwen/Qwen2.5-VL-32B-Instruct"
+    max_concurrency: 8
+    max_retries: 6
+    min_backoff: 0.5
+    max_backoff: 8.0
