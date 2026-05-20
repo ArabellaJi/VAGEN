@@ -7,6 +7,7 @@
 #   MEMORY=none      trainer.history_window_size=0
 #
 # GPU count is auto-detected via N_GPUS env var (default 1).
+# Disk-based weight sync is used so SGLang and FSDP weights never coexist in GPU memory.
 #
 # Usage (single GPU):
 #   MEMORY=full MODEL_PATH=/root/models/Qwen2.5-VL-7B-Instruct bash train_grpo_qwen25vl7b_pomdp_vast.sh
@@ -54,12 +55,26 @@ case "${MEMORY}" in
     ;;
 esac
 
+# Disk-based weight sync: FSDP writes to /tmp, SGLang reloads from there.
+# This avoids having both models in GPU memory simultaneously (which causes OOM on 1 GPU).
+SYNC_ROOT="/tmp/vagen_sglang_sync_$$"
+mkdir -p "${SYNC_ROOT}"
+trap "rm -rf ${SYNC_ROOT}" EXIT
+
+# Disable torch.compile and FlashInfer JIT to prevent deadlocks during SGLang init.
+export TORCHDYNAMO_DISABLE=1
+export FLASHINFER_ENABLE_JIT=0
+export FLASHINFER_JIT_WORKER_TIMEOUT=60
+export VAGEN_SGLANG_INIT_TIMEOUT=600
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 echo "=== POMDP Training Smoke Test ==="
 echo "  MEMORY strategy : ${MEMORY}"
 echo "  history_window  : ${HISTORY_WINDOW}"
 echo "  thumbnail_scale : ${THUMBNAIL}"
 echo "  model           : ${MODEL_PATH}"
 echo "  n_gpus          : ${N_GPUS}"
+echo "  sync_root       : ${SYNC_ROOT}"
 echo "=================================="
 
 PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
@@ -90,10 +105,11 @@ PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.max_num_batched_tokens=16000 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.free_cache_engine=True \
-    actor_rollout_ref.rollout.enable_chunked_prefill=True \
+    actor_rollout_ref.rollout.enable_chunked_prefill=False \
+    "+actor_rollout_ref.rollout.engine_kwargs.sglang.sampling_backend=pytorch" \
     actor_rollout_ref.rollout.multi_turn.enable=True \
     actor_rollout_ref.rollout.agent.agent_loop_config_path=${agent_loop_config_path} \
     actor_rollout_ref.rollout.disable_log_stats=False \
@@ -126,5 +142,12 @@ PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
     critic.ppo_micro_batch_size_per_gpu=1 \
     critic.model.fsdp_config.param_offload=True \
     critic.model.fsdp_config.optimizer_offload=True \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_METHOD=disk" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_DIR='${SYNC_ROOT}'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT=auto" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE=true" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.TORCHDYNAMO_DISABLE=1" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_ENABLE_JIT=0" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
     "$@" \
     2>&1 | tee ${EXPERIMENT_DIR}/${EXPERIMENT_NAME}.log
