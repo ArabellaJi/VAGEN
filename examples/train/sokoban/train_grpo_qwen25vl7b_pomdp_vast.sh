@@ -142,12 +142,12 @@ PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
     critic.ppo_micro_batch_size_per_gpu=1 \
     critic.model.fsdp_config.param_offload=True \
     critic.model.fsdp_config.optimizer_offload=True \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_METHOD=disk" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_METHOD='disk'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_DIR='${SYNC_ROOT}'" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT=auto" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE=true" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.TORCHDYNAMO_DISABLE=1" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_ENABLE_JIT=0" \
-    "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_LOAD_FORMAT='auto'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.VAGEN_SGLANG_WEIGHT_SYNC_FLUSH_CACHE='true'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.TORCHDYNAMO_DISABLE='1'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_ENABLE_JIT='0'" \
+    "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True'" \
     "$@" \
     2>&1 | tee ${EXPERIMENT_DIR}/${EXPERIMENT_NAME}.log
