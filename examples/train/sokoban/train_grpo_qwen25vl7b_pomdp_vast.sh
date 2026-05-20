@@ -107,9 +107,8 @@ PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
     actor_rollout_ref.rollout.max_num_batched_tokens=16000 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
     actor_rollout_ref.rollout.enforce_eager=True \
-    actor_rollout_ref.rollout.free_cache_engine=True \
+    actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
-    "+actor_rollout_ref.rollout.engine_kwargs.sglang.sampling_backend=pytorch" \
     actor_rollout_ref.rollout.multi_turn.enable=True \
     actor_rollout_ref.rollout.agent.agent_loop_config_path=${agent_loop_config_path} \
     actor_rollout_ref.rollout.disable_log_stats=False \
@@ -149,5 +148,6 @@ PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
     "+ray_kwargs.ray_init.runtime_env.env_vars.TORCHDYNAMO_DISABLE='1'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.FLASHINFER_ENABLE_JIT='0'" \
     "+ray_kwargs.ray_init.runtime_env.env_vars.PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True'" \
+    +ray_kwargs.ray_init.object_store_memory=4294967296 \
     "$@" \
     2>&1 | tee ${EXPERIMENT_DIR}/${EXPERIMENT_NAME}.log
