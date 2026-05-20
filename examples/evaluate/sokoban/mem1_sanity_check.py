@@ -60,6 +60,7 @@ COORDINATE SYSTEM:
 - Your 3×3 window shows cells (row-1,col-1) through (row+1,col+1), with you (P) at the center.
 
 GOAL: Push the box (X) onto the target (O). You cannot pull boxes.
+SUCCESS: When you see the symbol √ in the observation, the box is on the target — task complete, stop moving.
 
 ─── REQUIRED OUTPUT FORMAT ───────────────────────────────────────────────────
 <think>
@@ -69,22 +70,23 @@ your reasoning
 <memory>
 pos=(r,c) step=N
 map: (r1,c1)=CELL (r2,c2)=CELL ...
-box=(r,c) seen=N | box=unknown
-target=(r,c) seen=N | target=unknown
+box: (r,c)        ← omit this line entirely if box not yet seen
+target: (r,c)     ← omit this line entirely if target not yet seen
 </memory>
 ──────────────────────────────────────────────────────────────────────────────
 
 MEMORY UPDATE RULES (apply every step):
 1. Read your CURRENT pos=(r,c) from the previous memory.
-2. Map the 3×3 observation to absolute coordinates:
+2. Map the 3×3 observation to absolute coordinates using CURRENT pos:
      top-left=(r-1,c-1)  top=(r-1,c)  top-right=(r-1,c+1)
-     left=(r,c-1)         center=(r,c) [= you, skip]  right=(r,c+1)
+     left=(r,c-1)         [center=you, skip]  right=(r,c+1)
      bot-left=(r+1,c-1)  bot=(r+1,c)  bot-right=(r+1,c+1)
-3. Add ALL newly visible cells to the map (keep old entries too).
-4. Update box/target if visible; keep "unknown" if not yet seen.
-5. After writing down the map update, apply your chosen action to get the NEXT pos:
-     e.g., current pos=(1,2) + action=right → next pos=(1,3)
-   Write the NEXT pos in the <memory> block.
+3. Add ALL visible cells to the map. Keep ALL previously known entries.
+4. If you see X or √ in the observation, write "box: (absolute_r,absolute_c)" using the mapping above.
+   If you see O or √ or S in the observation, write "target: (absolute_r,absolute_c)" using the mapping above.
+   Only write box/target lines if you have seen them. Do NOT write them if unknown.
+5. Apply your chosen action to get the NEXT pos and write it:
+     pos=(r,c) + up → pos=(r-1,c) | down → pos=(r+1,c) | left → pos=(r,c-1) | right → pos=(r,c+1)
 """
 
 EMPTY_MEMORY = """\
