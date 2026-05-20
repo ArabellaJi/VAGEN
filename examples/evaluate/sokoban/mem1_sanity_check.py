@@ -53,47 +53,44 @@ You are a Sokoban solver with limited visibility (3×3 window centered on you).
 SYMBOLS:  # Wall | _ Floor | O Target | X Box | P You | √ Box on Target | S You on Target
 ACTIONS:  up | down | left | right
 
-COORDINATE SYSTEM:
-- Your starting position is (0, 0).
-- Row increases downward: "up" → row-1, "down" → row+1.
-- Column increases rightward: "left" → col-1, "right" → col+1.
-- Your 3×3 window shows cells (row-1,col-1) through (row+1,col+1), with you (P) at the center.
+POSITION TRACKING:
+- You start at offset (0,0). Each move changes your offset by exactly 1:
+    up→(r-1,c)  down→(r+1,c)  left→(r,c-1)  right→(r,c+1)
+- Objects in your 3×3 window have offsets relative to YOU:
+    above-left(-1,-1)  above(-1,0)  above-right(-1,+1)
+    left(0,-1)         [YOU]        right(0,+1)
+    below-left(+1,-1)  below(+1,0)  below-right(+1,+1)
+- To get an object's absolute offset: your_offset + window_delta
+  Example: you are at (2,3), box is directly above you → box offset = (2-1, 3+0) = (1,3)
+  Example: you are at (2,3), target is to your right   → target offset = (2+0, 3+1) = (2,4)
 
 GOAL: Push the box (X) onto the target (O). You cannot pull boxes.
-SUCCESS: When you see the symbol √ in the observation, the box is on the target — task complete, stop moving.
+SUCCESS: When you see √ in the observation, the task is complete — declare success and stop.
 
 ─── REQUIRED OUTPUT FORMAT ───────────────────────────────────────────────────
 <think>
-your reasoning
+your reasoning: where is the box, where is the target, what move gets me closer
 </think>
 <answer>action</answer>
 <memory>
-pos=(r,c) step=N
-map: (r1,c1)=CELL (r2,c2)=CELL ...
-box: (r,c)        ← omit this line entirely if box not yet seen
-target: (r,c)     ← omit this line entirely if target not yet seen
+me=(r,c) step=N
+box=(r,c)       ← absolute offset; omit this line if box not yet seen
+target=(r,c)    ← absolute offset; omit this line if target not yet seen
 </memory>
 ──────────────────────────────────────────────────────────────────────────────
 
-MEMORY UPDATE RULES (apply every step):
-1. Read your CURRENT pos=(r,c) from the previous memory.
-2. Map the 3×3 observation to absolute coordinates using CURRENT pos:
-     top-left=(r-1,c-1)  top=(r-1,c)  top-right=(r-1,c+1)
-     left=(r,c-1)         [center=you, skip]  right=(r,c+1)
-     bot-left=(r+1,c-1)  bot=(r+1,c)  bot-right=(r+1,c+1)
-3. Add ALL visible cells to the map. Keep ALL previously known entries.
-4. If you see X or √ in the observation, write "box: (absolute_r,absolute_c)" using the mapping above.
-   If you see O or √ or S in the observation, write "target: (absolute_r,absolute_c)" using the mapping above.
-   Only write box/target lines if you have seen them. Do NOT write them if unknown.
-5. Apply your chosen action to get the NEXT pos and write it:
-     pos=(r,c) + up → pos=(r-1,c) | down → pos=(r+1,c) | left → pos=(r,c-1) | right → pos=(r,c+1)
+MEMORY UPDATE RULES (3 steps, do all 3 every turn):
+STEP 1 — read current me=(r,c) from your previous memory.
+STEP 2 — scan the current 3×3 observation for X/√ and O/√/S:
+  • If you see X or √: box_offset = (r + window_delta_r, c + window_delta_c). Write "box=(r,c)".
+  • If you see O or √ or S: target_offset = same calculation. Write "target=(r,c)".
+  • If neither is visible, keep the box/target lines from previous memory unchanged.
+STEP 3 — apply your chosen action to get the NEXT me:
+  up→me=(r-1,c)  down→me=(r+1,c)  left→me=(r,c-1)  right→me=(r,c+1)
 """
 
 EMPTY_MEMORY = """\
-pos=(0,0) step=0
-map: (not yet observed)
-box=unknown
-target=unknown"""
+me=(0,0) step=0"""
 
 
 # ---------------------------------------------------------------------------
@@ -112,20 +109,24 @@ def parse_response(text: str) -> dict:
     }
 
 
-def count_map_entries(memory_str: str) -> int:
-    m = re.search(r"map:(.*?)(?:\n|$)", memory_str)
-    if not m:
-        return 0
-    line = m.group(1)
-    return len(re.findall(r"\(\s*-?\d+\s*,\s*-?\d+\s*\)", line))
+def count_map_entries(_memory_str: str) -> int:
+    # No longer tracking full map; return 0 as placeholder
+    return 0
 
 
 def box_known(memory_str: str) -> bool:
-    return bool(re.search(r"box=\(-?\d+\s*,\s*-?\d+\s*\)", memory_str))
+    # Matches "box=(-1,3)" style (no "me=" prefix to avoid false match)
+    return bool(re.search(r"(?<![a-z])box=\(-?\d+\s*,\s*-?\d+\s*\)", memory_str))
 
 
 def target_known(memory_str: str) -> bool:
     return bool(re.search(r"target=\(-?\d+\s*,\s*-?\d+\s*\)", memory_str))
+
+
+def extract_me_offset(memory_str: str):
+    """Return (r,c) from 'me=(r,c)' line, or None."""
+    m = re.search(r"me=\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)", memory_str)
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -231,12 +232,13 @@ async def run_episode(
         history.append(rec)
 
         if verbose:
-            tag_ok = "[+mem]" if rec.has_memory_tag else "[!mem]"
-            box_ok = "box=found" if rec.box_located else "box=?"
-            tgt_ok = "tgt=found" if rec.target_located else "tgt=?"
+            tag_ok  = "[+mem]" if rec.has_memory_tag else "[!mem]"
+            box_ok  = "box=found" if rec.box_located else "box=?"
+            tgt_ok  = "tgt=found" if rec.target_located else "tgt=?"
+            me_off  = extract_me_offset(memory)
+            me_str  = f"me={me_off}" if me_off is not None else "me=?"
             print(
-                f"\nStep {step:2d}  act={action_str:<6}  "
-                f"map_cells={rec.map_entries:2d}  {box_ok}  {tgt_ok}  {tag_ok}"
+                f"\nStep {step:2d}  act={action_str:<6}  {me_str}  {box_ok}  {tgt_ok}  {tag_ok}"
                 + (f"  *** reward={reward:.1f} ***" if reward != 0 else "")
             )
             print(f"  Think: {parsed['think'][:100]}")
@@ -247,7 +249,6 @@ async def run_episode(
     await env.close()
 
     memory_tag_rate = sum(r.has_memory_tag for r in history) / max(len(history), 1)
-    max_map_cells   = max((r.map_entries for r in history), default=0)
     ever_found_box  = any(r.box_located   for r in history)
     ever_found_tgt  = any(r.target_located for r in history)
 
@@ -257,7 +258,6 @@ async def run_episode(
         "success":          success,
         "total_reward":     total_reward,
         "memory_tag_rate":  memory_tag_rate,
-        "max_map_cells":    max_map_cells,
         "ever_found_box":   ever_found_box,
         "ever_found_target": ever_found_tgt,
         "history":          history,
@@ -307,9 +307,8 @@ async def main() -> None:
     print(f"  Avg reward:       {sum(r['total_reward'] for r in results)/n:.3f}")
     print()
     print(f"  Memory tag rate:  {sum(r['memory_tag_rate'] for r in results)/n:.1%}  (want ~100%)")
-    print(f"  Avg max map cells:{sum(r['max_map_cells'] for r in results)/n:.1f}  (want growth over steps)")
-    print(f"  Box located:      {sum(r['ever_found_box'] for r in results)}/{n}  (episodes where box pos recorded)")
-    print(f"  Target located:   {sum(r['ever_found_target'] for r in results)}/{n}  (episodes where tgt pos recorded)")
+    print(f"  Box located:      {sum(r['ever_found_box'] for r in results)}/{n}  (episodes where box offset recorded)")
+    print(f"  Target located:   {sum(r['ever_found_target'] for r in results)}/{n}  (episodes where target offset recorded)")
     print()
     print("Manual inspection checklist:")
     print("  [ ] pos updates match actions (count moves, verify final offset)")
