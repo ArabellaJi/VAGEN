@@ -1,18 +1,25 @@
 #!/bin/bash
-# POMDP Sokoban GRPO training — Vast.ai smoke test (100 steps, 7B, 4x A100)
+# POMDP Sokoban GRPO training — Vast.ai smoke test (100 steps, 7B)
 #
 # Conditions (set via MEMORY env var before running):
 #   MEMORY=full      trainer.history_window_size=-1  thumbnail_scale=1.0
 #   MEMORY=thumb05   trainer.history_window_size=-1  thumbnail_scale=0.5
 #   MEMORY=none      trainer.history_window_size=0
 #
-# Usage:
+# GPU count is auto-detected via N_GPUS env var (default 1).
+#
+# Usage (single GPU):
 #   MEMORY=full MODEL_PATH=/root/models/Qwen2.5-VL-7B-Instruct bash train_grpo_qwen25vl7b_pomdp_vast.sh
+#
+# Usage (4-GPU, override any param):
+#   N_GPUS=4 MEMORY=full MODEL_PATH=... bash train_grpo_qwen25vl7b_pomdp_vast.sh \
+#     actor_rollout_ref.rollout.gpu_memory_utilization=0.5
 
 set -x
 
 MEMORY="${MEMORY:-full}"
 MODEL_PATH="${MODEL_PATH:-/root/models/Qwen2.5-VL-7B-Instruct}"
+N_GPUS="${N_GPUS:-1}"
 
 PROJECT_NAME="vagen_pomdp"
 EXPERIMENT_NAME="sokoban_grpo_7b_pomdp_${MEMORY}"
@@ -52,6 +59,7 @@ echo "  MEMORY strategy : ${MEMORY}"
 echo "  history_window  : ${HISTORY_WINDOW}"
 echo "  thumbnail_scale : ${THUMBNAIL}"
 echo "  model           : ${MODEL_PATH}"
+echo "  n_gpus          : ${N_GPUS}"
 echo "=================================="
 
 PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
@@ -98,7 +106,7 @@ PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.val_before_train=True \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=${N_GPUS} \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=25 \
@@ -118,4 +126,5 @@ PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
     critic.ppo_micro_batch_size_per_gpu=1 \
     critic.model.fsdp_config.param_offload=True \
     critic.model.fsdp_config.optimizer_offload=True \
+    "$@" \
     2>&1 | tee ${EXPERIMENT_DIR}/${EXPERIMENT_NAME}.log
