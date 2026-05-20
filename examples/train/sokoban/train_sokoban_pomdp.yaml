@@ -1,0 +1,13 @@
+envs:
+  - name: Sokoban
+    n_envs: 10000
+    data_source: sokoban_pomdp
+    seed: [1, 10000, 1]
+    max_turns: 10
+    response_length_per_turn: 512
+    config:
+      render_mode: vision
+      partial_obs_radius: 1
+      min_solution_steps: [1, 5]
+      format_reward: 0.0
+      prompt_format: wm
