@@ -1162,6 +1162,40 @@ class RayPPOTrainer:
             except Exception as _e:
                 print(f"[VAGEN] Could not query Ray resources: {_e}")
 
+            # Pre-save disk sync weights BEFORE SGLang starts.
+            # At this point only FSDP overhead (~14 GiB) is on GPU, leaving
+            # ~65 GiB free — enough for save_checkpoint's actor load.
+            # After SGLang starts, GPU is ~54 GiB in Process 1 with only
+            # ~641 MiB free, which is far too little for the 14 GiB load.
+            if is_sglang_disk_weight_sync_enabled(self.config):
+                import time as _presave_time
+                save_contents = list(
+                    self.config.actor_rollout_ref.actor.checkpoint.get("save_contents", None) or []
+                )
+                if "hf_model" not in save_contents:
+                    raise ValueError(
+                        "SGLang disk weight sync requires "
+                        "actor_rollout_ref.actor.checkpoint.save_contents to include 'hf_model'."
+                    )
+                sync_root = get_sglang_weight_sync_root(
+                    config=self.config,
+                    default_local_dir=self.config.trainer.default_local_dir,
+                )
+                actor_local_path = get_sglang_actor_sync_dir(sync_root, 0)
+                print(f"[VAGEN] Pre-saving disk sync weights before SGLang startup → {actor_local_path}")
+                _t_presave = _presave_time.time()
+                self.actor_rollout_wg.save_checkpoint(actor_local_path, None, 0, max_ckpt_to_keep=2)
+                print(f"[VAGEN] Pre-save done in {_presave_time.time()-_t_presave:.1f}s")
+                hf_model_dir = get_sglang_hf_model_dir(sync_root, 0)
+                if not os.path.isdir(hf_model_dir):
+                    raise FileNotFoundError(
+                        f"Pre-save: expected HF checkpoint at {hf_model_dir} but it was not created."
+                    )
+                update_latest_sync_step(sync_root, 0)
+                prune_old_sync_steps(sync_root, keep=2)
+                self._sglang_disk_sync_exported_version = 0
+                print(f"[VAGEN] Disk sync ready at step 0; SGLang will load from {hf_model_dir}")
+
             print("[VAGEN] Starting AgentLoopManager init (SGLang server startup) ...")
             import time as _time
             _t0 = _time.time()
