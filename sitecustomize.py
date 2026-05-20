@@ -211,82 +211,51 @@ def _install_transformers_eager_attention_fallback() -> None:
 
 def _install_cpu_state_dict_save_patch() -> None:
     """
-    Wrap PreTrainedModel.save_pretrained so that any CUDA tensors in the
-    state_dict keyword argument are moved to CPU before saving.
-
-    Without this, HuggingFace's save_pretrained does state_dict[name].clone()
-    on each CUDA tensor to avoid modifying the caller's dict, and this clone
-    triggers a GPU OOM when the GPU is nearly full (e.g. SGLang + FSDP
-    occupying ~79 GiB on an 80 GiB A100).  Moving to CPU first is always
-    correct because the tensors are about to be written to disk anyway.
+    Patch PreTrainedModel.save_pretrained to move any CUDA state_dict tensors
+    to CPU before saving.  HF's save_pretrained does .clone() on each tensor,
+    which needs GPU memory we don't have when SGLang + FSDP fill the 80 GiB
+    A100.  CPU tensors clone in RAM (221 GiB free), so this always succeeds.
+    We use a direct import so the patch applies immediately in every process
+    that loads sitecustomize.py, including Ray actor workers.
     """
     try:
-        target = "transformers.modeling_utils"
+        import transformers.modeling_utils as _tmu  # noqa: PLC0415
 
-        def patch_module(module) -> None:
-            cls = getattr(module, "PreTrainedModel", None)
-            if cls is None or getattr(cls, "_vagen_cpu_save_patch", False):
-                return
-
-            _orig = cls.save_pretrained
-
-            def _patched_save_pretrained(self, *args, **kwargs):
-                sd = kwargs.get("state_dict")
-                if sd is not None and any(getattr(v, "is_cuda", False) for v in sd.values()):
-                    print(
-                        "[vagen] save_pretrained: moving CUDA state_dict to CPU to avoid OOM",
-                        file=sys.stderr,
-                    )
-                    kwargs["state_dict"] = {
-                        k: v.cpu() if hasattr(v, "cpu") else v for k, v in sd.items()
-                    }
-                return _orig(self, *args, **kwargs)
-
-            cls.save_pretrained = _patched_save_pretrained
-            cls._vagen_cpu_save_patch = True
-            print(
-                "[sitecustomize] Patched save_pretrained: CUDA state_dict auto-moved to CPU",
-                file=sys.stderr,
-            )
-
-        if target in sys.modules:
-            patch_module(sys.modules[target])
+        cls = getattr(_tmu, "PreTrainedModel", None)
+        if cls is None or getattr(cls, "_vagen_cpu_save_patch", False):
             return
 
-        class _CpuSaveLoader(importlib.abc.Loader):
-            def __init__(self, wrapped_loader):
-                self._wrapped_loader = wrapped_loader
+        _orig = cls.save_pretrained
 
-            def create_module(self, spec):
-                if hasattr(self._wrapped_loader, "create_module"):
-                    return self._wrapped_loader.create_module(spec)
-                return None
+        def _patched_save_pretrained(self, *args, **kwargs):
+            sd = kwargs.get("state_dict")
+            if sd is not None and any(
+                getattr(v, "is_cuda", False) for v in sd.values()
+            ):
+                print(
+                    "[vagen] save_pretrained: moving CUDA state_dict to CPU",
+                    file=sys.stderr,
+                )
+                kwargs["state_dict"] = {
+                    k: v.cpu() if hasattr(v, "cpu") else v for k, v in sd.items()
+                }
+            return _orig(self, *args, **kwargs)
 
-            def exec_module(self, module):
-                self._wrapped_loader.exec_module(module)
-                patch_module(module)
-
-        class _CpuSaveFinder(importlib.abc.MetaPathFinder):
-            def find_spec(self, fullname, path=None, target_module=None):
-                if fullname != target:
-                    return None
-
-                original_meta_path = sys.meta_path
-                try:
-                    sys.meta_path = [f for f in original_meta_path if f is not self]
-                    spec = importlib.util.find_spec(fullname)
-                finally:
-                    sys.meta_path = original_meta_path
-
-                if spec is None or spec.loader is None:
-                    return spec
-
-                spec.loader = _CpuSaveLoader(spec.loader)
-                return spec
-
-        sys.meta_path.insert(0, _CpuSaveFinder())
+        cls.save_pretrained = _patched_save_pretrained
+        cls._vagen_cpu_save_patch = True
+        print(
+            "[sitecustomize] Patched PreTrainedModel.save_pretrained:"
+            " CUDA state_dict auto-moved to CPU",
+            file=sys.stderr,
+        )
+    except ImportError:
+        # transformers not installed in this environment — skip
+        pass
     except Exception as exc:
-        print(f"[sitecustomize] Failed to install CPU state_dict save patch: {exc}", file=sys.stderr)
+        print(
+            f"[sitecustomize] Failed to patch save_pretrained: {exc}",
+            file=sys.stderr,
+        )
 
 
 _install_vagen_sglang_patch()

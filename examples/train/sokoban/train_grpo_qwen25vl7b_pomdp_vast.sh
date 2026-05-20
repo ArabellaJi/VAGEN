@@ -35,6 +35,42 @@ agent_loop_config_path=${BASEDIR}/vagen/configs/agent.yaml
 
 mkdir -p ${EXPERIMENT_DIR}
 
+# ---------------------------------------------------------------------------
+# Patch verl's fsdp_checkpoint_manager to move state_dict to CPU before
+# save_pretrained.  HF's save_pretrained clones every CUDA tensor, which OOMs
+# when SGLang + FSDP already occupy ~79 GiB of an 80 GiB A100.  CPU tensors
+# clone in RAM (221 GiB free), so this is safe and always fast enough.
+# The patch is idempotent: a second run is a no-op.
+# ---------------------------------------------------------------------------
+_CKPT_MGR="${BASEDIR}/verl/verl/utils/checkpoint/fsdp_checkpoint_manager.py"
+if [ -f "${_CKPT_MGR}" ] && ! grep -q "_vagen_cpu_patched" "${_CKPT_MGR}"; then
+    python3 - "${_CKPT_MGR}" <<'PYPATCH'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    code = f.read()
+old = '                save_model.save_pretrained(hf_local_path, state_dict=state_dict)'
+new = (
+    '                # vagen: move to CPU to avoid CUDA OOM on A100 80GB (_vagen_cpu_patched)\n'
+    '                state_dict = {\n'
+    '                    k: v.cpu() if hasattr(v, "cpu") and getattr(v, "is_cuda", False) else v\n'
+    '                    for k, v in state_dict.items()\n'
+    '                }\n'
+    '                save_model.save_pretrained(hf_local_path, state_dict=state_dict)'
+)
+if old not in code:
+    print(f"[vagen] WARNING: patch pattern not found in {path!r} — skipping", flush=True)
+    sys.exit(0)
+with open(path, "w") as f:
+    f.write(code.replace(old, new, 1))
+print(f"[vagen] Patched {path}", flush=True)
+PYPATCH
+elif [ -f "${_CKPT_MGR}" ]; then
+    echo "[vagen] fsdp_checkpoint_manager already patched — skipping"
+else
+    echo "[vagen] WARNING: ${_CKPT_MGR} not found — patch skipped"
+fi
+
 # Memory strategy parameters
 case "${MEMORY}" in
   full)
