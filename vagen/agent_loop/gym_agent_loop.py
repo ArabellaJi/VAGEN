@@ -90,9 +90,12 @@ class AgentData:
         self.traj_success: bool = False
         self.env_turns: int = 0
 
-
         # Cached assistant text to step env
         self.last_assistant_text: Optional[str] = None
+
+        # MEM1: compact memory state (managed by agent loop, not env)
+        self.use_mem1: bool = False
+        self.memory_state: str = "me=(0,0) step=0"
 
 
 # -------------------- MM helpers --------------------
@@ -232,6 +235,17 @@ def convert_obs_to_content(
     return content
 
 
+def _extract_memory(text: str, default: str = "me=(0,0) step=0") -> str:
+    """Extract <memory>...</memory> content from a model response."""
+    m = re.search(r"<memory>(.*?)</memory>", text, re.DOTALL)
+    return m.group(1).strip() if m else default
+
+
+def _build_mem1_user_text(memory_state: str, obs_str: str) -> str:
+    """Build the user message text for a MEM1 step."""
+    return f"[Your memory state]\n{memory_state}\n\n{obs_str}"
+
+
 # -------------------- Gym Agent Loop --------------------
 
 class GymAgentLoop(AgentLoopBase):
@@ -293,12 +307,23 @@ class GymAgentLoop(AgentLoopBase):
         messages: List[Dict[str, Any]] = []
         image_data: List[Image.Image] = []
 
+        # Detect MEM1 mode from env config
+        env_config = kwargs.get("config", {})
+        _pf = env_config.get("prompt_format", "") if isinstance(env_config, dict) else getattr(env_config, "prompt_format", "")
+        use_mem1 = (_pf == "mem1")
+
         if sys_obs:
             messages.append({"role": "system", "content": convert_obs_to_content(sys_obs, **kwargs)})
             sys_imgs = sys_obs.get("multi_modal_input", {}).get("<image>", []) or []
             image_data.extend(_normalize_images(sys_imgs))
         if init_obs:
-            messages.append({"role": "user", "content": convert_obs_to_content(init_obs, **kwargs)})
+            if use_mem1:
+                # Prepend empty memory state to initial observation
+                init_obs_mem1 = dict(init_obs)
+                init_obs_mem1["obs_str"] = _build_mem1_user_text("me=(0,0) step=0", init_obs.get("obs_str", ""))
+                messages.append({"role": "user", "content": convert_obs_to_content(init_obs_mem1, **kwargs)})
+            else:
+                messages.append({"role": "user", "content": convert_obs_to_content(init_obs, **kwargs)})
             init_imgs = init_obs.get("multi_modal_input", {}).get("<image>", []) or []
             image_data.extend(_normalize_images(init_imgs))
 
@@ -316,6 +341,7 @@ class GymAgentLoop(AgentLoopBase):
             response_limit=per_turn_response_limit,
             env_name=kwargs["env_name"],
         )
+        agent_data.use_mem1 = use_mem1
 
         # State machine: always GENERATE -> INTERACT, and decide termination inside INTERACT
         try:
@@ -432,6 +458,11 @@ class GymAgentLoop(AgentLoopBase):
         assistant_message = self.tokenizer.decode(agent_data.response_ids, skip_special_tokens=True)
         agent_data.last_assistant_text = assistant_message
         agent_data.messages.append({"role": "assistant", "content": assistant_message})
+
+        # MEM1: extract and cache new memory state from response
+        if agent_data.use_mem1:
+            agent_data.memory_state = _extract_memory(assistant_message, default=agent_data.memory_state)
+
         return AgentState.INTERACTING
 
     async def _handle_env_state(self, agent_data: AgentData, **kwargs) -> AgentState:
@@ -470,46 +501,86 @@ class GymAgentLoop(AgentLoopBase):
             return AgentState.TERMINATED
 
         # Not terminal -> append user suffix for next turn
-        user_content = convert_obs_to_content(obs, **kwargs)
-        user_msg = {"role": "user", "content": user_content}
-        agent_data.messages.append(user_msg)
-
         new_images = obs.get("multi_modal_input", {}).get("<image>", []) or []
         new_images = _normalize_images(new_images)
-
         _placeholder = {"role": "system", "content": "placeholder"}
-        if self.processor is not None:
-            raw_user_suffix = self.processor.apply_chat_template(
-                [_placeholder, user_msg],
-                add_generation_prompt=True,
-                tokenize=False,
-                **self.apply_chat_template_kwargs,
-            )
-            model_inputs = self.processor(text=[raw_user_suffix], images=new_images or None, return_tensors="pt")
-            sglang_response_ids = _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_user_suffix)
-            response_ids = model_inputs["input_ids"].squeeze(0).tolist()
-        else:
+
+        if agent_data.use_mem1:
+            # MEM1: inject memory state into user message
+            obs_mem1 = dict(obs)
+            obs_mem1["obs_str"] = _build_mem1_user_text(agent_data.memory_state, obs.get("obs_str", ""))
+            user_content = convert_obs_to_content(obs_mem1, **kwargs)
+            user_msg = {"role": "user", "content": user_content}
+            agent_data.messages.append(user_msg)
+
             if new_images:
-                raise ValueError("Environment returned images but `processor` is None.")
+                raise ValueError("MEM1 mode does not support vision observations.")
 
             flat_user_msg = _flatten_text_only_content(user_msg)
-            response_ids = self.tokenizer.apply_chat_template(
+
+            # prompt_ids (training): append suffix as usual
+            suffix_ids = self.tokenizer.apply_chat_template(
                 [_placeholder, flat_user_msg],
                 add_generation_prompt=True,
                 tokenize=True,
                 return_dict=False,
                 **self.apply_chat_template_kwargs,
             )
-            sglang_response_ids = response_ids
-        response_ids = response_ids[len(self.system_prompt_prefix):]
-        sglang_response_ids = sglang_response_ids[len(self.system_prompt_prefix_sglang):]
-        agent_data.prompt_ids += response_ids
-        agent_data.sglang_prompt_ids += sglang_response_ids
-        agent_data.response_mask += [0] * len(response_ids)
-        if agent_data.response_logprobs:
-            agent_data.response_logprobs += [0.0] * len(response_ids)
+            suffix_ids = suffix_ids[len(self.system_prompt_prefix):]
+            agent_data.prompt_ids += suffix_ids
+            agent_data.response_mask += [0] * len(suffix_ids)
+            if agent_data.response_logprobs:
+                agent_data.response_logprobs += [0.0] * len(suffix_ids)
 
-        if new_images:
-            agent_data.image_data.extend(new_images)
+            # sglang_prompt_ids (inference): RESET to fresh [sys + mem+obs]
+            # so the model only sees memory + current obs, not full history
+            fresh_msgs = [agent_data.messages[0], user_msg]
+            flat_fresh = [_flatten_text_only_content(m) for m in fresh_msgs]
+            fresh_ids = self.tokenizer.apply_chat_template(
+                flat_fresh,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=False,
+                **self.apply_chat_template_kwargs,
+            )
+            agent_data.sglang_prompt_ids = fresh_ids  # full reset
+
+        else:
+            user_content = convert_obs_to_content(obs, **kwargs)
+            user_msg = {"role": "user", "content": user_content}
+            agent_data.messages.append(user_msg)
+
+            if self.processor is not None:
+                raw_user_suffix = self.processor.apply_chat_template(
+                    [_placeholder, user_msg],
+                    add_generation_prompt=True,
+                    tokenize=False,
+                    **self.apply_chat_template_kwargs,
+                )
+                model_inputs = self.processor(text=[raw_user_suffix], images=new_images or None, return_tensors="pt")
+                sglang_response_ids = _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_user_suffix)
+                response_ids = model_inputs["input_ids"].squeeze(0).tolist()
+            else:
+                if new_images:
+                    raise ValueError("Environment returned images but `processor` is None.")
+                flat_user_msg = _flatten_text_only_content(user_msg)
+                response_ids = self.tokenizer.apply_chat_template(
+                    [_placeholder, flat_user_msg],
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    return_dict=False,
+                    **self.apply_chat_template_kwargs,
+                )
+                sglang_response_ids = response_ids
+            response_ids = response_ids[len(self.system_prompt_prefix):]
+            sglang_response_ids = sglang_response_ids[len(self.system_prompt_prefix_sglang):]
+            agent_data.prompt_ids += response_ids
+            agent_data.sglang_prompt_ids += sglang_response_ids
+            agent_data.response_mask += [0] * len(response_ids)
+            if agent_data.response_logprobs:
+                agent_data.response_logprobs += [0.0] * len(response_ids)
+
+            if new_images:
+                agent_data.image_data.extend(new_images)
 
         return AgentState.GENERATING

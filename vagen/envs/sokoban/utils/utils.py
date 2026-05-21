@@ -181,6 +181,47 @@ def parse_free_wm(response: str, action_sep: str = ",", max_actions: int = 3) ->
         "format_correct": format_correct,
     }
 
+def parse_mem1(response: str, action_sep: str = ",", max_actions: int = 1) -> Dict:
+    """
+    Parse MEM1 format response:
+      <think>...</think><answer>ACTION</answer><memory>...</memory>
+    Only the <answer> tag is required for env stepping; <memory> is extracted
+    separately by the agent loop and is not validated here.
+    """
+    pattern = r'<think>(.*?)</think>\s*<answer>(.*?)</answer>'
+    match = re.search(pattern, response, re.DOTALL)
+    format_correct = match is not None
+
+    if not match:
+        think_content = ""
+        action_content = ""
+        actions = []
+    else:
+        think_content = match.group(1).strip()
+        action_content = match.group(2).strip()
+        actions = [a.strip().lower() for a in action_content.split(action_sep) if a.strip()]
+        if len(actions) > max_actions:
+            actions = actions[:max_actions]
+            action_content = action_sep.join(actions)
+
+    # Extract memory tag (for logging; agent loop does its own extraction)
+    mem_match = re.search(r'<memory>(.*?)</memory>', response, re.DOTALL)
+    memory_content = mem_match.group(1).strip() if mem_match else ""
+    if mem_match:
+        format_correct = format_correct  # memory tag is optional for env
+    llm_response = f"<think>{think_content}</think><answer>{action_content}</answer>"
+
+    return {
+        "llm_raw_response": response,
+        "llm_response": llm_response,
+        "think_content": think_content,
+        "action_content": action_content,
+        "memory_content": memory_content,
+        "actions": actions,
+        "format_correct": format_correct,
+    }
+
+
 def parse_response(response: str, prompt_format: str = "free_think", action_sep: str = ",", max_actions: int = 3) -> Dict:
     """Parse LLM response based on the specified prompt format"""
     if prompt_format == "free_think":
@@ -189,6 +230,8 @@ def parse_response(response: str, prompt_format: str = "free_think", action_sep:
         return parse_wm(response, action_sep, max_actions)
     elif prompt_format == "free_wm":
         return parse_free_wm(response, action_sep, max_actions)
+    elif prompt_format == "mem1":
+        return parse_mem1(response, action_sep, max_actions)
     else:
         raise ValueError(f"Unknown prompt format: {prompt_format}")
     

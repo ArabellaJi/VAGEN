@@ -38,6 +38,8 @@ def format_prompt(max_actions_per_step, action_sep, add_example=True, prompt_for
         return wm_format_prompt(max_actions_per_step, action_sep, add_example, partial_obs_radius)
     elif prompt_format == "free_wm":
         return free_wm_format_prompt(max_actions_per_step, action_sep, add_example)
+    elif prompt_format == "mem1":
+        return mem1_format_prompt(add_example)
     else:
         raise ValueError(f"Unknown prompt format: {prompt_format}")
 
@@ -123,6 +125,63 @@ Example 3:
 <prediction>The box will be same row and right of the player, and the target will be same row and left of the player</prediction>
 """
         return base_prompt + "\n" + examples
+
+    return base_prompt
+
+
+def mem1_format_prompt(add_example=True):
+    """Format prompt for MEM1 mode: single action per step + compact memory state."""
+    base_prompt = """\
+You see a 3×3 grid centered on you each step. Use your memory state to remember \
+where the box and target are across steps.
+
+POSITION TRACKING:
+- You start at offset (0,0). Each move shifts your offset by 1:
+    up→(r-1,c)  down→(r+1,c)  left→(r,c-1)  right→(r,c+1)
+- Window deltas from your position:
+    (-1,-1) (-1,0) (-1,+1)
+    (0,-1)  [YOU]  (0,+1)
+    (+1,-1) (+1,0) (+1,+1)
+- Absolute offset of a visible object = your_offset + window_delta.
+
+SUCCESS: When you see √ in the observation, the task is complete — choose any action \
+and write your final memory.
+
+Required output format (exactly this structure):
+<think>reasoning</think>
+<answer>action</answer>
+<memory>
+me=(r,c) step=N
+box=(r,c)
+target=(r,c)
+</memory>
+
+Rules:
+- Output exactly ONE action: up | down | left | right
+- Write "box=(r,c)" only if you saw X or √ this step or in a prior step.
+- Write "target=(r,c)" only if you saw O, √, or S this step or in a prior step.
+- Update me=(r,c) to your NEXT position after applying your chosen action.
+- If box/target not yet seen, omit those lines entirely."""
+
+    if add_example:
+        base_prompt += """
+
+Example (box visible to the right, target not yet seen, starting position):
+<think>Box is to my right at window offset (0,+1). My pos is (0,0), so box=(0,1). No target seen yet. I'll move right to push it.</think>
+<answer>right</answer>
+<memory>
+me=(0,1) step=1
+box=(0,1)
+</memory>
+
+Example (box known from memory, target now visible above):
+<think>Box is at (2,1) from memory. I see O above me at (-1,0), my pos is (3,1), so target=(2,1). Box and target are at the same offset — already solved!</think>
+<answer>up</answer>
+<memory>
+me=(2,1) step=7
+box=(2,1)
+target=(2,1)
+</memory>"""
 
     return base_prompt
 
