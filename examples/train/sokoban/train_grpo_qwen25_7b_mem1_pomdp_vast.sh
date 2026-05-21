@@ -85,7 +85,7 @@ path = sys.argv[1]
 with open(path) as f:
     lines = f.readlines()
 # Functions where load_fsdp_model_to_gpu is required (called before SGLang starts)
-KEEP_FUNCS = {'save_checkpoint'}
+KEEP_FUNCS = {'save_checkpoint', '_build_rollout'}
 def nearest_func(lines, idx):
     for j in range(idx - 1, max(0, idx - 200), -1):
         m = re.match(r'\s{0,8}def (\w+)', lines[j])
