@@ -69,6 +69,55 @@ else
     echo "[vagen] WARNING: ${_CKPT_MGR} not found — patch skipped"
 fi
 
+# ---------------------------------------------------------------------------
+# Patch fsdp_workers.py: skip load_fsdp_model_to_gpu in compute_log_prob.
+# With param_offload=True FSDP already does JIT per-layer loading during every
+# forward pass.  The explicit pre-load clones the entire 17 GiB model to GPU at
+# once, consuming ~26 GiB and causing OOM when SGLang already holds ~55 GiB on
+# an A100 80 GiB.  Removing the pre-load cuts FSDP peak to ~4 GiB (JIT).
+# Idempotent: second run is a no-op.
+# ---------------------------------------------------------------------------
+_FSDP_WRK="${BASEDIR}/verl/verl/workers/fsdp_workers.py"
+if [ -f "${_FSDP_WRK}" ] && ! grep -q "_vagen_clp_patched" "${_FSDP_WRK}"; then
+    python3 - "${_FSDP_WRK}" <<'PYPATCH'
+import sys, re
+path = sys.argv[1]
+with open(path) as f:
+    lines = f.readlines()
+in_func = False
+patched = False
+for i, line in enumerate(lines):
+    if re.search(r'def compute_log_prob\b', line):
+        in_func = True
+    elif in_func and re.match(r'\s{0,8}def \w+', line) and not re.search(r'def compute_log_prob\b', line):
+        in_func = False
+    if (in_func
+            and 'load_fsdp_model_to_gpu(self.actor_module_fsdp)' in line
+            and not line.lstrip().startswith('#')):
+        indent = ' ' * (len(line) - len(line.lstrip()))
+        lines[i] = (
+            indent + '# vagen: skip full GPU pre-load; param_offload JIT loads per-layer (_vagen_clp_patched)\n'
+            + indent + '# ' + line.lstrip()
+        )
+        patched = True
+        print(f"[vagen] Patched line {i+1}: {line.rstrip()!r}", flush=True)
+        break
+if not patched:
+    print(f"[vagen] WARNING: compute_log_prob load_fsdp_model_to_gpu pattern not found in {path!r} — skipping", flush=True)
+    for i, line in enumerate(lines):
+        if 'load_fsdp_model_to_gpu' in line:
+            print(f"  Line {i+1}: {line.rstrip()!r}", flush=True)
+else:
+    with open(path, 'w') as f:
+        f.writelines(lines)
+    print(f"[vagen] Patched {path}", flush=True)
+PYPATCH
+elif [ -f "${_FSDP_WRK}" ]; then
+    echo "[vagen] fsdp_workers compute_log_prob already patched — skipping"
+else
+    echo "[vagen] WARNING: ${_FSDP_WRK} not found — patch skipped"
+fi
+
 # Kill any leftover SGLang/Ray processes from previous crashed runs.
 ray stop --force 2>/dev/null || true
 pkill -9 -f "sglang.launch_server" 2>/dev/null || true
