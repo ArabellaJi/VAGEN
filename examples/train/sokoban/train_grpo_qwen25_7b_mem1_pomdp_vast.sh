@@ -78,43 +78,35 @@ fi
 # Idempotent: second run is a no-op.
 # ---------------------------------------------------------------------------
 _FSDP_WRK="${BASEDIR}/verl/verl/workers/fsdp_workers.py"
-if [ -f "${_FSDP_WRK}" ] && ! grep -q "_vagen_clp_patched" "${_FSDP_WRK}"; then
+if [ -f "${_FSDP_WRK}" ] && ! grep -q "_vagen_all_patched" "${_FSDP_WRK}"; then
     python3 - "${_FSDP_WRK}" <<'PYPATCH'
-import sys, re
+import sys
 path = sys.argv[1]
 with open(path) as f:
     lines = f.readlines()
-in_func = False
-patched = False
+new_lines = []
+patched = []
 for i, line in enumerate(lines):
-    if re.search(r'def compute_log_prob\b', line):
-        in_func = True
-    elif in_func and re.match(r'\s{0,8}def \w+', line) and not re.search(r'def compute_log_prob\b', line):
-        in_func = False
-    if (in_func
-            and 'load_fsdp_model_to_gpu(self.actor_module_fsdp)' in line
+    if ('load_fsdp_model_to_gpu(self.actor_module_fsdp)' in line
             and not line.lstrip().startswith('#')):
         indent = ' ' * (len(line) - len(line.lstrip()))
-        lines[i] = (
-            indent + '# vagen: skip full GPU pre-load; param_offload JIT loads per-layer (_vagen_clp_patched)\n'
-            + indent + '# ' + line.lstrip()
-            + indent + 'pass  # vagen: placeholder keeps the if-block non-empty\n'
-        )
-        patched = True
-        print(f"[vagen] Patched line {i+1}: {line.rstrip()!r}", flush=True)
-        break
+        new_lines.append(indent + '# vagen: skip GPU pre-load; param_offload JIT is sufficient (_vagen_all_patched)\n')
+        new_lines.append(indent + '# ' + line.lstrip())
+        new_lines.append(indent + 'pass\n')
+        patched.append(i + 1)
+    else:
+        new_lines.append(line)
 if not patched:
-    print(f"[vagen] WARNING: compute_log_prob load_fsdp_model_to_gpu pattern not found in {path!r} — skipping", flush=True)
-    for i, line in enumerate(lines):
-        if 'load_fsdp_model_to_gpu' in line:
-            print(f"  Line {i+1}: {line.rstrip()!r}", flush=True)
+    print(f"[vagen] WARNING: no unpatched load_fsdp_model_to_gpu(self.actor_module_fsdp) found in {path!r}", flush=True)
 else:
     with open(path, 'w') as f:
-        f.writelines(lines)
-    print(f"[vagen] Patched {path}", flush=True)
+        f.writelines(new_lines)
+    import py_compile
+    py_compile.compile(path)
+    print(f"[vagen] Patched lines {patched} in {path}. Syntax OK.", flush=True)
 PYPATCH
 elif [ -f "${_FSDP_WRK}" ]; then
-    echo "[vagen] fsdp_workers compute_log_prob already patched — skipping"
+    echo "[vagen] fsdp_workers already fully patched — skipping"
 else
     echo "[vagen] WARNING: ${_FSDP_WRK} not found — patch skipped"
 fi
@@ -174,7 +166,7 @@ PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
     actor_rollout_ref.rollout.max_num_batched_tokens=8000 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.45 \
     actor_rollout_ref.rollout.enforce_eager=True \
-    actor_rollout_ref.rollout.free_cache_engine=False \
+    actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.multi_turn.enable=True \
