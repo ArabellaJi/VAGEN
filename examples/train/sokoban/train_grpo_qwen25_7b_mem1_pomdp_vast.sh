@@ -80,22 +80,38 @@ fi
 _FSDP_WRK="${BASEDIR}/verl/verl/workers/fsdp_workers.py"
 if [ -f "${_FSDP_WRK}" ] && ! grep -q "_vagen_all_patched" "${_FSDP_WRK}"; then
     python3 - "${_FSDP_WRK}" <<'PYPATCH'
-import sys
+import sys, re
 path = sys.argv[1]
 with open(path) as f:
     lines = f.readlines()
+# Functions where load_fsdp_model_to_gpu is required (called before SGLang starts)
+KEEP_FUNCS = {'save_checkpoint'}
+def nearest_func(lines, idx):
+    for j in range(idx - 1, max(0, idx - 200), -1):
+        m = re.match(r'\s{0,8}def (\w+)', lines[j])
+        if m:
+            return m.group(1)
+    return None
 new_lines = []
 patched = []
+skipped = []
 for i, line in enumerate(lines):
     if ('load_fsdp_model_to_gpu(self.actor_module_fsdp)' in line
             and not line.lstrip().startswith('#')):
-        indent = ' ' * (len(line) - len(line.lstrip()))
-        new_lines.append(indent + '# vagen: skip GPU pre-load; param_offload JIT is sufficient (_vagen_all_patched)\n')
-        new_lines.append(indent + '# ' + line.lstrip())
-        new_lines.append(indent + 'pass\n')
-        patched.append(i + 1)
+        fname = nearest_func(lines, i)
+        if fname in KEEP_FUNCS:
+            skipped.append((i + 1, fname))
+            new_lines.append(line)
+        else:
+            indent = ' ' * (len(line) - len(line.lstrip()))
+            new_lines.append(indent + '# vagen: skip GPU pre-load; param_offload JIT is sufficient (_vagen_all_patched)\n')
+            new_lines.append(indent + '# ' + line.lstrip())
+            new_lines.append(indent + 'pass\n')
+            patched.append(i + 1)
     else:
         new_lines.append(line)
+if skipped:
+    print(f"[vagen] Kept load_fsdp_model_to_gpu in {skipped} (required)", flush=True)
 if not patched:
     print(f"[vagen] WARNING: no unpatched load_fsdp_model_to_gpu(self.actor_module_fsdp) found in {path!r}", flush=True)
 else:
@@ -103,7 +119,7 @@ else:
         f.writelines(new_lines)
     import py_compile
     py_compile.compile(path)
-    print(f"[vagen] Patched lines {patched} in {path}. Syntax OK.", flush=True)
+    print(f"[vagen] Patched lines {patched}, kept lines {[l for l,_ in skipped]} in {path}. Syntax OK.", flush=True)
 PYPATCH
 elif [ -f "${_FSDP_WRK}" ]; then
     echo "[vagen] fsdp_workers already fully patched — skipping"
