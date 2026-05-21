@@ -98,6 +98,7 @@ for i, line in enumerate(lines):
         lines[i] = (
             indent + '# vagen: skip full GPU pre-load; param_offload JIT loads per-layer (_vagen_clp_patched)\n'
             + indent + '# ' + line.lstrip()
+            + indent + 'pass  # vagen: placeholder keeps the if-block non-empty\n'
         )
         patched = True
         print(f"[vagen] Patched line {i+1}: {line.rstrip()!r}", flush=True)
