@@ -75,9 +75,10 @@ pkill -9 -f "sglang.launch_server" 2>/dev/null || true
 pkill -9 -f "sglang._srt" 2>/dev/null || true
 sleep 3
 
-# Disk-based weight sync: FSDP writes to /tmp, SGLang reloads from there.
-# This avoids having both models in GPU memory simultaneously (which causes OOM on 1 GPU).
-SYNC_ROOT="/tmp/vagen_sglang_sync_$$"
+# Disk-based weight sync: FSDP writes here, SGLang reloads from here.
+# Use the experiment directory (main filesystem) rather than /tmp (often a small tmpfs)
+# to avoid "No space left on device" when writing the 15 GiB model weights.
+SYNC_ROOT="${EXPERIMENT_DIR}/sglang_sync"
 mkdir -p "${SYNC_ROOT}"
 trap "rm -rf ${SYNC_ROOT}" EXIT
 
@@ -136,7 +137,7 @@ PYTHONUNBUFFERED=1 python3 -m vagen.main_ppo \
     trainer.concat_multi_turn=True \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     trainer.n_gpus_per_node=${N_GPUS} \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
