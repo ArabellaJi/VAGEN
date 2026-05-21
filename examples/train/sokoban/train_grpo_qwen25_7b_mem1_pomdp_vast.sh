@@ -69,6 +69,11 @@ else
     echo "[vagen] WARNING: ${_CKPT_MGR} not found — patch skipped"
 fi
 
+# Kill any leftover SGLang/Ray processes from previous crashed runs.
+ray stop --force 2>/dev/null || true
+pkill -f "sglang" 2>/dev/null || true
+sleep 2
+
 # Disk-based weight sync: FSDP writes to /tmp, SGLang reloads from there.
 # This avoids having both models in GPU memory simultaneously (which causes OOM on 1 GPU).
 SYNC_ROOT="/tmp/vagen_sglang_sync_$$"
