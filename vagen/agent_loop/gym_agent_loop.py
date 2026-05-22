@@ -425,6 +425,12 @@ class GymAgentLoop(AgentLoopBase):
         
         if len(agent_data.prompt_ids)>self.prompt_length:
             logger.warning(f"In env:{agent_data.env_name}, initial prompt length {len(agent_data.prompt_ids)} exceeds prompt_length {self.prompt_length}")
+        if os.getenv("VAGEN_DEBUG_GENERATE") == "1":
+            _dec_p = self.tokenizer.decode(agent_data.prompt_ids, skip_special_tokens=False)
+            logger.warning(
+                "[VAGEN_DEBUG] PENDING env=%s n_prompt_ids=%d decoded_tail=%r",
+                agent_data.env_name, len(agent_data.prompt_ids), _dec_p[-300:],
+            )
         return AgentState.GENERATING
 
     async def _handle_generating_state(
@@ -437,12 +443,27 @@ class GymAgentLoop(AgentLoopBase):
         sampling_params_for_turn["max_new_tokens"] = max_new_tokens
             
 
+        _debug = os.getenv("VAGEN_DEBUG_GENERATE") == "1"
+        if _debug:
+            _dec = self.tokenizer.decode(agent_data.sglang_prompt_ids, skip_special_tokens=False)
+            logger.warning(
+                "[VAGEN_DEBUG] turn=%d env=%s n_sglang_ids=%d decoded_head=%r",
+                agent_data.env_turns, agent_data.env_name,
+                len(agent_data.sglang_prompt_ids), _dec[:300],
+            )
         with simple_timer("generate_sequences", agent_data.metrics):
             output = await self.server_manager.generate(
                 request_id=agent_data.request_id,
                 prompt_ids=agent_data.sglang_prompt_ids,
                 sampling_params=sampling_params_for_turn,
                 image_data=agent_data.image_data or None,
+            )
+        if _debug:
+            logger.warning(
+                "[VAGEN_DEBUG] turn=%d response_ids_head=%s decoded_resp=%r",
+                agent_data.env_turns,
+                (output.token_ids or [])[:15],
+                self.tokenizer.decode((output.token_ids or [])[:40], skip_special_tokens=False),
             )
 
         agent_data.response_ids = output.token_ids
