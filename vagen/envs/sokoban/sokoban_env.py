@@ -92,22 +92,18 @@ class Sokoban(GymImageEnv):
     # EnvImageBase abstract methods
     # ------------------------------
     async def close(self) -> None:
-        """Non-blocking close via to_thread to avoid blocking the loop."""
-        await asyncio.to_thread(self.env.close)
+        self.env.close()
 
     async def reset(self, seed: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
-        Non-blocking reset:
-        - Offloads env.reset() to a thread pool to avoid blocking the event loop.
-        - Uses seed for deterministic reset
-        - Generates map according to min_solution_steps requirement
+        Reset the environment. Sokoban ops are fast CPU-only logic so we call
+        synchronously to avoid creating OS threads (important in containers with
+        low pids.max cgroup limits).
         """
-        # If seeding is needed, set it before reset in to_thread, or call a seeded reset API.
-        
-        await asyncio.to_thread(self.env.reset, seed=seed,
-                                min_solution_steps=self.config.min_solution_steps,
-                                reset_seed_max_tries=self.config.reset_seed_max_tries,
-                                min_solution_bfs_max_depth=self.config.min_solution_bfs_max_depth)
+        self.env.reset(seed=seed,
+                       min_solution_steps=self.config.min_solution_steps,
+                       reset_seed_max_tries=self.config.reset_seed_max_tries,
+                       min_solution_bfs_max_depth=self.config.min_solution_bfs_max_depth)
         self.total_reward = 0.0
         self.valid_actions = []
         obs = await self._render_async(init_obs=True)
@@ -162,8 +158,7 @@ class Sokoban(GymImageEnv):
         for action in action_list:
             if action in self.ACTION_LOOKUP:
                 action_int = self.ACTION_LOOKUP[action]
-                # Offload the blocking gym step to a thread
-                _obs, step_reward, step_done, _ = await asyncio.to_thread(self.env.step, action_int)
+                _obs, step_reward, step_done, _ = self.env.step(action_int)
                 # reward += float(step_reward) # ignore sokoban reward
                 self.valid_actions.append(action)
                 # Early success check
