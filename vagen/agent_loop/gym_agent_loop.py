@@ -399,14 +399,14 @@ class GymAgentLoop(AgentLoopBase):
 
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: Dict[str, Any]) -> AgentState:
         """Encode initial (system + first user) messages into prompt_ids."""
-        if self.processor is not None:
+        if self.processor is not None and agent_data.image_data:
             raw_prompt = self.processor.apply_chat_template(
                 agent_data.messages,
                 add_generation_prompt=True,
                 tokenize=False,
                 **self.apply_chat_template_kwargs,
             )
-            model_inputs = self.processor(text=[raw_prompt], images=agent_data.image_data or None, return_tensors="pt")
+            model_inputs = self.processor(text=[raw_prompt], images=agent_data.image_data, return_tensors="pt")
             agent_data.sglang_prompt_ids = _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_prompt)
             agent_data.prompt_ids = model_inputs["input_ids"].squeeze(0).tolist()
         else:
@@ -550,18 +550,18 @@ class GymAgentLoop(AgentLoopBase):
             user_msg = {"role": "user", "content": user_content}
             agent_data.messages.append(user_msg)
 
-            if self.processor is not None:
+            if self.processor is not None and new_images:
                 raw_user_suffix = self.processor.apply_chat_template(
                     [_placeholder, user_msg],
                     add_generation_prompt=True,
                     tokenize=False,
                     **self.apply_chat_template_kwargs,
                 )
-                model_inputs = self.processor(text=[raw_user_suffix], images=new_images or None, return_tensors="pt")
+                model_inputs = self.processor(text=[raw_user_suffix], images=new_images, return_tensors="pt")
                 sglang_response_ids = _tokenize_raw_prompt_for_sglang(self.tokenizer, raw_user_suffix)
                 response_ids = model_inputs["input_ids"].squeeze(0).tolist()
             else:
-                if new_images:
+                if new_images and self.processor is None:
                     raise ValueError("Environment returned images but `processor` is None.")
                 flat_user_msg = _flatten_text_only_content(user_msg)
                 response_ids = self.tokenizer.apply_chat_template(
